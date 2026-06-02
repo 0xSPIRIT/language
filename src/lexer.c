@@ -1,5 +1,52 @@
 #include "lexer.h"
 
+char *token_name(token_type type) {
+    switch (type) {
+        case TOKEN_NONE:
+            return "none";
+        case TOKEN_NUMBER:
+            return "number";
+        case TOKEN_IDENTIFIER:
+            return "identifier";
+        case TOKEN_KEYWORD:
+            return "keyword";
+        case TOKEN_STRING_LIT:
+            return "string literal";
+        case TOKEN_PLUS:
+            return "+";
+        case TOKEN_MINUS:
+            return "-";
+        case TOKEN_MULTIPLY:
+            return "*";
+        case TOKEN_DIVIDE:
+            return "/";
+        case TOKEN_EQUALS:
+            return "=";
+        case TOKEN_LESS:
+            return "<";
+        case TOKEN_MORE:
+            return ">";
+        case TOKEN_OPEN_PAREN:
+            return "(";
+        case TOKEN_CLOSE_PAREN:
+            return ")";
+        case TOKEN_OPEN_SQUARE:
+            return "[";
+        case TOKEN_CLOSE_SQUARE:
+            return "]";
+        case TOKEN_OPEN_SCOPE:
+            return "{";
+        case TOKEN_CLOSE_SCOPE:
+            return "}";
+        case TOKEN_END_STATEMENT:
+            return ";";
+        case TOKEN_QUOTE:
+            return "\"";
+        default:
+            return "(unknown token)";
+    }
+}
+
 bool is_separator(char ch) {
     return ch == ' ' || ch == '\n' || ch == '(' || ch == ')' || ch == '{' || ch == '}';
 }
@@ -26,6 +73,7 @@ bool is_single(char c) {
         case '{':
         case '}':
         case ';':
+        case '"':
             return true;
         default:
             return false;
@@ -33,6 +81,7 @@ bool is_single(char c) {
 }
 
 token_list tokenize(memory_arena *arena, string code, string filename) {
+    // Overestimate the number of tokens.
     token *Tokens     = (token *)arena_push(arena, sizeof(token) * code.Length);
     size_t TokenCount = 0;
 
@@ -91,7 +140,31 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             continue;
         }
 
-        if (is_single(ch)) {
+        if (ch == '"') {
+            int Start            = i;
+            Tokens[TokenCount++] = (token){TOKEN_QUOTE, CSTR("\"")};
+
+            i++;
+
+            while (code.Data[i++] != '"') {
+                if (i >= code.Length) {
+                    printf("String didn't end (started at ");
+                    string_print(filename);
+                    printf(" line %zu, column %zu\n", Line, Col);
+                }
+            }
+
+            i--;
+
+            size_t StringLength = i - Start - 1;
+
+            string Str = {code.Data + Start + 1, StringLength};
+
+            Tokens[TokenCount++] = (token){TOKEN_STRING_LIT, Str};
+            Tokens[TokenCount++] = (token){TOKEN_QUOTE, CSTR("\"")};
+
+            continue;
+        } else if (is_single(ch)) {
             token tok;
             tok.Type             = (token_type)ch;
             tok.String           = (string){code.Data + i, 1};
@@ -100,7 +173,7 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             continue;
         }
 
-        printf("Syntax error in ");
+        printf("(%c) Syntax error in ", ch);
         string_print(filename);
         printf(" line %zu, column %zu\n", Line, Col);
     }

@@ -7,6 +7,13 @@
 #include "util/string.c"
 #include "util/util.c"
 
+#define TEST_ASM \
+    "\
+.globl main\n\
+main:\n\
+    movl    $67, %eax\n\
+    ret\n"
+
 int main() {
     memory_arena Arena = make_arena();
 
@@ -16,8 +23,20 @@ int main() {
 
     token_list Tokens = tokenize(&Arena, Code, Filename);
 
-    ast_node *Node = parse(Tokens);
-    (void)Node;
+    if (Tokens.Tokens) {
+        ast_node *Node = parse(&Arena, Tokens);
+        (void)Node;
+    } else {
+        printf("Error!\n");
+    }
+
+    string AssemblyCode = string_make(&Arena, GB(2));
+
+    string_append(&AssemblyCode, CSTR(TEST_ASM));
+
+    string_print(AssemblyCode);
+
+    output_data_to_file(AssemblyCode, "prog.s");
 
     free_arena(&Arena);
     return 0;

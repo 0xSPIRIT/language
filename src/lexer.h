@@ -10,6 +10,7 @@ typedef enum {
     TOKEN_NUMBER     = 1,
     TOKEN_IDENTIFIER = 2,
     TOKEN_KEYWORD    = 3,
+    TOKEN_STRING_LIT = 4,
 
     TOKEN_PLUS          = '+',
     TOKEN_MINUS         = '-',
@@ -25,6 +26,7 @@ typedef enum {
     TOKEN_OPEN_SCOPE    = '{',
     TOKEN_CLOSE_SCOPE   = '}',
     TOKEN_END_STATEMENT = ';',
+    TOKEN_QUOTE         = '"',
 } token_type;
 
 const string Keywords[] = {
@@ -41,6 +43,8 @@ typedef struct {
     token *Tokens;
     size_t Count;
 } token_list;
+
+char *token_name(token_type type);
 
 bool is_separator(char ch);
 bool is_whitespace(char ch);
