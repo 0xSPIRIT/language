@@ -2,8 +2,7 @@
 
 #include "util/arena.h"
 #include "util/string.h"
-
-#define ArraySize(arr) (sizeof(arr) / sizeof((arr)[0]))
+#include "util/util.h"
 
 typedef enum {
     TOKEN_NONE       = 0,
@@ -26,17 +25,27 @@ typedef enum {
     TOKEN_OPEN_SCOPE    = '{',
     TOKEN_CLOSE_SCOPE   = '}',
     TOKEN_END_STATEMENT = ';',
+    TOKEN_COMMA         = ',',
     TOKEN_QUOTE         = '"',
 } token_type;
 
+typedef enum {
+    KEYWORD_INVALID = 0,
+    KEYWORD_IF,
+    KEYWORD_ELSE,
+    KEYWORD_SWITCH,
+    KEYWORD_STRUCT,
+    KEYWORD_RETURN
+} keyword;
+
 const string Keywords[] = {
-    CSTR("func"), CSTR("if"),     CSTR("else"),   CSTR("switch"),
-    CSTR("int"),  CSTR("string"), CSTR("struct"), CSTR("return"),
+    CSTR("if"), CSTR("else"), CSTR("switch"), CSTR("struct"), CSTR("return"),
 };
 
 typedef struct {
     token_type Type;
     string String;
+    keyword Keyword;  // Index into Keywords[]
 } token;
 
 typedef struct {
@@ -51,5 +60,8 @@ bool is_whitespace(char ch);
 bool is_number(char ch);
 bool is_letter(char ch);
 bool is_single(char c);
+
+string get_keyword_str(keyword Keyword);
+keyword keyword_from_index(int Index);
 
 token_list tokenize(memory_arena *arena, string code, string filename);

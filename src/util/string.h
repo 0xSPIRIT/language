@@ -16,3 +16,4 @@ typedef struct {
 string string_make(memory_arena *a, size_t capacity);
 void string_print(string s);
 bool string_equals(string a, string b);
+char *string_to_cstr(string s);

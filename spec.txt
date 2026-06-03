@@ -4,7 +4,7 @@ A C-like compiler!
 
 ## Function Syntax
 
-return_type function_name(type p1, type p2) {
+func function_name(type p1, type p2) -> return_type {
     return_type a;
 
     a = func(a, func2(p1, p2));

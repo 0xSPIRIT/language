@@ -1,7 +1,4 @@
-#include "string.h"
-#include "arena.h"
-
-#include <stdbool.h>
+#include "util.h"
 
 string read_entire_file(memory_arena *arena, const char *fp) {
     FILE *file = fopen(fp, "r");
@@ -43,4 +40,16 @@ bool output_data_to_file(string data, const char *filename) {
 
     fclose(File);
     return true;
+}
+
+void print_stack_trace(void) {
+    void *buffer[30];
+    int size;
+
+    // Get the addresses of the functions currently on the stack
+    size = backtrace(buffer, 30);
+
+    // Print the symbols (function names/addresses) to standard error
+    fprintf(stderr, "--- Stack Trace (%d frames) ---\n", size);
+    backtrace_symbols_fd(buffer, size, STDERR_FILENO);
 }

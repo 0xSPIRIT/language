@@ -1,5 +1,9 @@
 #include "string.h"
 
+#include "util.h"
+
+#include <assert.h>
+
 string string_make(memory_arena *a, size_t capacity) {
     string Result;
 
@@ -10,7 +14,7 @@ string string_make(memory_arena *a, size_t capacity) {
 }
 
 void string_print(string s) {
-    printf("%.*s\n", (int)s.Length, s.Data);
+    printf("%.*s", (int)s.Length, s.Data);
 }
 
 bool string_equals(string a, string b) {
@@ -28,4 +32,18 @@ void string_append(string *dest, const string src) {
     }
 
     dest->Length += src.Length;
+}
+
+
+char *string_to_cstr(string s) {
+    static char Result[1024] = {};
+
+    assert(s.Length < ArraySize(Result));
+
+    for (size_t i = 0; i < s.Length; i++)
+        Result[i] = s.Data[i];
+
+    Result[s.Length] = 0;
+
+    return Result;
 }

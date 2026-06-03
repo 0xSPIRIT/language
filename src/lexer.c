@@ -40,6 +40,8 @@ char *token_name(token_type type) {
             return "}";
         case TOKEN_END_STATEMENT:
             return ";";
+        case TOKEN_COMMA:
+            return ",";
         case TOKEN_QUOTE:
             return "\"";
         default:
@@ -74,10 +76,20 @@ bool is_single(char c) {
         case '}':
         case ';':
         case '"':
+        case ',':
             return true;
         default:
             return false;
     }
+}
+
+keyword keyword_from_index(int Index) {
+    keyword Result = Index + 1;
+    return Result;
+}
+
+string get_keyword_str(keyword Keyword) {
+    return Keywords[(int)(Keyword - 1)];
 }
 
 token_list tokenize(memory_arena *arena, string code, string filename) {
@@ -130,6 +142,7 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             for (int i = 0; i < ArraySize(Keywords); i++) {
                 if (string_equals(tok.String, Keywords[i])) {
                     tok.Type = TOKEN_KEYWORD;
+                    tok.Keyword = keyword_from_index(i);
                 }
             }
 

@@ -1,4 +1,3 @@
-func main() -> int {
-    string asdf = "This is a test";
-    return a;
+int main(int a, char b, string c) {
+    return 67;
 }

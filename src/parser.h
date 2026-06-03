@@ -24,9 +24,16 @@ typedef struct ast_node {
     node_type Type;
 
     union {
+        // NODE_PROGRAM
+        struct {
+            struct ast_node **Functions;   // array of NODE_FUNC_DEF
+            struct ast_node **GlobalVars;  // array of NODE_VAR_DECL
+        } Program;
+
         // NODE_FUNC_DEF
         struct {
             string Name;
+            string ReturnType;
             struct ast_node **Params;  // array of NODE_VAR_DECL
             int ParamCount;
         } FuncDef;
@@ -100,3 +107,4 @@ typedef struct ast_node {
 } ast_node;
 
 ast_node *parse(memory_arena *arena, token_list tokens);
+void print_node(ast_node *node);
