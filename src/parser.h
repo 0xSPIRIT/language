@@ -26,6 +26,7 @@ typedef struct ast_node {
     union {
         // NODE_PROGRAM
         struct {
+            int FunctionCount;
             struct ast_node **Functions;   // array of NODE_FUNC_DEF
             struct ast_node **GlobalVars;  // array of NODE_VAR_DECL
         } Program;

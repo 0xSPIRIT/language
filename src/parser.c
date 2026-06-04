@@ -119,7 +119,7 @@ ast_node *parse_literal(parser *p) {
 // are some kind of expression.
 //
 // else, we create the node and return it.
-ast_node *parse_expression(parser *p, bool peeking) {
+ast_node *_parse_or_peek_expression(parser *p, bool peeking) {
     int Saved = p->i;
 
     ast_node *Node = 0;
@@ -194,11 +194,19 @@ ast_node *parse_expression(parser *p, bool peeking) {
     return Node;
 }
 
+ast_node *parse_expression(parser *p) {
+  return _parse_or_peek_expression(p, false);
+}
+
+bool is_expression(parser *p) {
+  return _parse_or_peek_expression(p, true) != 0;
+}
+
 ast_node *parse_block(parser *p) {
     consume(p, TOKEN_OPEN_SCOPE);
 
-    if (parse_expression(p, true)) {
-        ast_node *Expr = parse_expression(p, false);
+    if (is_expression(p)) {
+        ast_node *Expr = parse_expression(p);
 
         printf("GOT\n");
         print_node(Expr);
@@ -273,6 +281,19 @@ ast_node **get_params(parser *p, int *param_count) {
     return Result;
 }
 
+bool is_function(parser *p) {
+    bool Result = (p->Tokens.Tokens[p->i+0].Type == TOKEN_IDENTIFIER &&
+                   p->Tokens.Tokens[p->i+1].Type == TOKEN_IDENTIFIER &&
+                   p->Tokens.Tokens[p->i+2].Type == TOKEN_OPEN_PAREN);
+
+    if (string_equals(p->Tokens.Tokens[p->i].String, CSTR("asdf"))) {
+        printf("Hello! %d\n", Result);
+        string_print(p->Tokens.Tokens[p->i+2].String);
+    }
+
+    return Result;
+}
+
 ast_node *parse_function(parser *p) {
     int ParamCount = 0;
 
@@ -293,12 +314,28 @@ ast_node *parse_function(parser *p) {
     return Root;
 }
 
+int get_function_count(parser *p) {
+    int Count = 0;
+    int Saved = p->i;
+
+    do {
+        if (is_function(p))
+            Count++;
+    } while (advance(p));
+
+    p->i = Saved;
+
+    return Count;
+}
+
 ast_node *parse(memory_arena *arena, token_list tokens) {
     parser p = {0, 0, tokens, arena};
 
     ast_node *Root = node(&p, NODE_PROGRAM);
 
-    Root->Program.Functions  = arena_push(arena, 1 * sizeof(ast_node *));
+    Root->Program.FunctionCount = get_function_count(&p);
+    printf("Function count = %d\n", Root->Program.FunctionCount);
+    Root->Program.Functions  = arena_push(arena, Root->Program.FunctionCount * sizeof(ast_node *));
     Root->Program.GlobalVars = 0;
 
     Root->Program.Functions[0] = parse_function(&p);

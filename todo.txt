@@ -1,0 +1,3 @@
+[ ] Make identifiers able to have numbers in their names
+[ ] Finish parser
+  [ ] Parse expressions

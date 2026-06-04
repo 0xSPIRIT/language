@@ -1,24 +1,23 @@
-.global main
+.global _start
 
 .section .data
-    msg: .string "This is an ASCII string!"
+    msg:
+      .ascii "This is an ASCII string!\n"
+    msg_end:
+
+.equ msg_len, msg_end-msg
 
 .section .text
-main:
-    # Set up stack frame (Standard IA32 Calling Convention)
-    pushl %ebp
-    movl %esp, %ebp
+_start:
+  movl $4, %eax # 4 = write
+  movl $1, %ebx # 1 = stdout fd
+  movl $msg, %ecx # data buffer
+  movl $msg_len, %edx # length
 
-    # Push function arguments to stack from right to left
-    pushl $msg
-    call puts
-    addl $4, %esp        # Clean up the 4-byte argument pointer from stack
+  int $0x80 # Trigger syscall
 
-    movl $67, %eax
-
-    # Restore stack frame and exit
-    movl %ebp, %esp
-    popl %ebp
-    ret
+  movl $1, %eax
+  movl $67, %ebx
+  int $0x80
 
 .section .note.GNU-stack,"",@progbits

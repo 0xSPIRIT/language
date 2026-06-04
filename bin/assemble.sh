@@ -1,2 +1,2 @@
 #!/bin/bash
-gcc -m32 -no-pie prog.s -o prog # Automatically links with CRT
+gcc -m32 -no-pie -nostdlib -g func.s -o func

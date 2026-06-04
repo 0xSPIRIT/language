@@ -1,3 +1,5 @@
+https://github.com/namantam1/x86-assembly/tree/main#conditional-statement-ifelse
+
 # Static Data Regions
 
 .data # Use this to declare global variables (can be written & read)
@@ -38,3 +40,52 @@ being referenced by the size of the register operand.
 
 Example: (%rax) gets the data at %rax
 D(Rb, Ri, S) => Rb + Ri * S + D   /* D is signed, S = { 1, 2, 4, 8 } */
+
+## Stack
+
+The hardware stack grows downwards, towards lower addresses.
+
+pushl %reg
+popl %reg
+
+## Registers
+
+The order for passing syscall parameters are
+  0. ebx
+  1. ecx
+  2. edx
+  3. esi
+  4. edi
+  5. ebp
+
+To do a syscall set %eax to the syscall code, and then set the parameters up in the registers
+before calling int $0x80
+
+ebp - Extended base pointer, Frame Pointer.
+    - Used when entering a function, refers to the top of the stack.
+    - %esp will continue being moved as data is pushed/popped
+
+## Instructions
+
+cmp src, dest   # Computes dest - src
+jge label       # Jumps if dest >= src
+
+## Function Calls
+
+1) push function parameters in reverse order using pushl
+2) call function using call function-name
+3) define the function name as .type function-name, @function
+4) start the function block with the function name (.function-name:)
+5) Function Prologue:
+    pushl %ebp
+    movl  %esp, %ebp    # ebp (base frame pointer) = esp (top of stack)
+6) Get function parameters by using %ebp with offsets
+    movl 8(%ebp), %ebx  # Load arg0 into %ebx
+    (Arguments must start at 8, since 0-3 is taken by the saved %ebp and 4-7 is taken by
+     the 4-byte return address that will be jumped to after ret is called.)
+7) Do the things in the function
+8) Store return value in %eax
+9) Function Epilogue:
+     movl %ebp, %esp     # Deallocate locals, restore stack pointer
+     popl %ebp
+     ret
