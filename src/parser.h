@@ -2,12 +2,14 @@
 
 #include "lexer.h"
 
+#define MAX_STATEMENTS 2048
+
 typedef enum {
     NODE_PROGRAM,
     NODE_FUNC_DEF,
     NODE_BLOCK,
     NODE_VAR_DECL,
-    NODE_ASS,
+    NODE_ASSIGN,
     NODE_RETURN,
     NODE_IF,
     NODE_WHILE,
@@ -37,6 +39,7 @@ typedef struct ast_node {
             string ReturnType;
             struct ast_node **Params;  // array of NODE_VAR_DECL
             int ParamCount;
+            struct ast_node *Body; // NODE_BLOCK
         } FuncDef;
 
         // NODE_BLOCK
@@ -76,7 +79,7 @@ typedef struct ast_node {
             int ArgCount;
         } Call;
 
-        // NODE_ASS
+        // NODE_ASSIGN
         struct {
             string Target;
             struct ast_node *Value;
@@ -107,5 +110,13 @@ typedef struct ast_node {
     int Line, Col;
 } ast_node;
 
+typedef struct {
+    size_t i;
+    int Depth;
+    token_list Tokens;
+    memory_arena *Arena;
+} parser;
+
 ast_node *parse(memory_arena *arena, token_list tokens);
 void print_node(ast_node *node);
+void print_at(parser *p);

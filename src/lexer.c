@@ -49,6 +49,13 @@ char *token_name(token_type type) {
     }
 }
 
+void print_token(token *tok) {
+    printf("%-15s ", token_name(tok->Type));
+
+    if (!is_single(tok->String.Data[0]))
+        string_print(tok->String);
+}
+
 bool is_separator(char ch) {
     return ch == ' ' || ch == '\n' || ch == '(' || ch == ')' || ch == '{' || ch == '}';
 }

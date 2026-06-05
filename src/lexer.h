@@ -61,6 +61,8 @@ bool is_number(char ch);
 bool is_letter(char ch);
 bool is_single(char c);
 
+void print_token(token *tok);
+
 string get_keyword_str(keyword Keyword);
 keyword keyword_from_index(int Index);
 
