@@ -4,6 +4,8 @@
 
 #define MAX_STATEMENTS 2048
 
+#define print_tree(ast) _print_tree(ast, 0)
+
 typedef enum {
     NODE_PROGRAM,
     NODE_FUNC_DEF,
@@ -11,8 +13,10 @@ typedef enum {
     NODE_VAR_DECL,
     NODE_ASSIGN,
     NODE_RETURN,
+
     NODE_IF,
     NODE_WHILE,
+    //NODE_FOR, // not as important rn
     NODE_CALL,
     NODE_BINARY_OP,
     NODE_UNARY_OP,
@@ -28,9 +32,10 @@ typedef struct ast_node {
     union {
         // NODE_PROGRAM
         struct {
-            int FunctionCount;
             struct ast_node **Functions;   // array of NODE_FUNC_DEF
+            int FunctionCount;
             struct ast_node **GlobalVars;  // array of NODE_VAR_DECL
+            int GlobalVarCount;
         } Program;
 
         // NODE_FUNC_DEF
@@ -39,7 +44,7 @@ typedef struct ast_node {
             string ReturnType;
             struct ast_node **Params;  // array of NODE_VAR_DECL
             int ParamCount;
-            struct ast_node *Body; // NODE_BLOCK
+            struct ast_node *Body;     // NODE_BLOCK
         } FuncDef;
 
         // NODE_BLOCK
@@ -120,3 +125,4 @@ typedef struct {
 ast_node *parse(memory_arena *arena, token_list tokens);
 void print_node(ast_node *node);
 void print_at(parser *p);
+ast_node *parse_block(parser *p);

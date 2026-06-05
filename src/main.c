@@ -26,9 +26,7 @@ int main() {
 
     if (Tokens.Tokens) {
         ast_node *Tree = parse(&Arena, Tokens);
-
-        for (int i = 0; i < Tree->Program.FunctionCount; i++)
-            print_node(Tree->Program.Functions[i]);
+        print_tree(Tree);
     } else {
         printf("Error!\n");
     }

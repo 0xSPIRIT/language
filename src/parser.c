@@ -1,5 +1,6 @@
 #include "parser.h"
 
+#include <assert.h>
 #include <stdarg.h>
 
 #define consume(p, token) _consume(p, token, __FILE__, __LINE__)
@@ -83,16 +84,6 @@ token *consume_keyword(parser *p, keyword Keyword) {
     return Tok;
 }
 
-ast_node *parse_assignment(parser *p) {
-    ast_node *Root = node(p, NODE_ASSIGN);
-
-    token *Left = consume(p, TOKEN_IDENTIFIER);
-    (void)Left;
-    consume(p, TOKEN_EQUALS);
-
-    return Root;
-}
-
 ast_node *parse_identifier(parser *p) {
     token *Ident     = advance(p);
     ast_node *Node   = node(p, NODE_IDENT);
@@ -101,6 +92,8 @@ ast_node *parse_identifier(parser *p) {
 }
 
 ast_node *parse_literal(parser *p) {
+    if (peek(p)->Type == TOKEN_QUOTE) advance(p);
+
     token *Lit = advance(p);
 
     ast_node *Node = 0;
@@ -114,6 +107,8 @@ ast_node *parse_literal(parser *p) {
         case TOKEN_STRING_LIT:
             Node                  = node(p, NODE_STRING_LIT);
             Node->StringLit.Value = Lit->String;
+            token *A              = advance(p);
+            assert(A->Type == TOKEN_QUOTE);
             break;
         default:
             parse_error(p, "Couldn't parse literal.");
@@ -122,6 +117,29 @@ ast_node *parse_literal(parser *p) {
 
     return Node;
 }
+
+ast_node *_parse_or_peek_expression(parser *p, bool peeking) {
+    if (peek(p)->Type == TOKEN_IDENTIFIER) {
+        if (peeking) return (ast_node *)-1;
+        return parse_identifier(p);
+    } else if (peek(p)->Type == TOKEN_NUMBER || peek(p)->Type == TOKEN_QUOTE) {
+        if (peeking) return (ast_node *)-1;
+
+        if (peek(p)->Type == TOKEN_QUOTE) {
+            advance(p);
+        }
+
+        return parse_literal(p);
+    } else {
+        parse_error(p, "Expected identifier or string/integer literal but got ");
+        string_print(peek(p)->String);
+    }
+
+    return 0;
+}
+
+ast_node *parse_expression(parser *p) { return _parse_or_peek_expression(p, false); }
+bool is_expression(parser *p) { return _parse_or_peek_expression(p, true); }
 
 // if peeking, don't generate any parser errors,
 // and we will return non-NULL if the following tokens
@@ -150,49 +168,24 @@ ast_node *_parse_or_peek_statement(parser *p, bool peeking) {
     // parse block
 
     switch (Curr->Type) {
+        case TOKEN_OPEN_SCOPE:
+            if (peeking) break;
+
+            back(p);
+            Node = parse_block(p);
+            break;
         case TOKEN_KEYWORD:
             if (Curr->Keyword == KEYWORD_RETURN) {
-                token *RetVal = peek(p);
+                ast_node *ValNode = parse_expression(p);
 
-                if (RetVal->Type == TOKEN_IDENTIFIER) {
-                    advance(p);
-
-                    if (peek(p)->Type != TOKEN_END_STATEMENT) {
-                        parse_error(p, "Expected ; at end of statement.");
-                        Node = 0;
-                        break;
-                    }
-
-                    back(p);
-
-                    if (peeking) break;
-
-                    ast_node *Identifier = parse_identifier(p);
-
-                    Node               = node(p, NODE_RETURN);
-                    Node->Return.Value = Identifier;
-                } else if (RetVal->Type == TOKEN_NUMBER || RetVal->Type == TOKEN_STRING_LIT) {
-                    advance(p);
-
-                    if (peek(p)->Type != TOKEN_END_STATEMENT) {
-                        parse_error(p, "Expected ; at end of statement.");
-                        Node = 0;
-                        break;
-                    }
-
-                    back(p);
-
-                    if (peeking) break;
-
-                    ast_node *Literal = parse_literal(p);
-
-                    Node               = node(p, NODE_RETURN);
-                    Node->Return.Value = Literal;
-                } else {
-                    parse_error(p, "Expected identifier after return, but got ");
-                    string_print(peek(p)->String);
+                if (!ValNode) {
                     Node = 0;
+                    break;
                 }
+
+                Node               = node(p, NODE_RETURN);
+                Node->Return.Value = ValNode;
+            } else if (Curr->Keyword == KEYWORD_IF) {
             }
             break;
         case TOKEN_IDENTIFIER: {
@@ -203,22 +196,14 @@ ast_node *_parse_or_peek_statement(parser *p, bool peeking) {
                 // Function call
             } else if (T->Type == TOKEN_IDENTIFIER) {
                 // Variable declaration (int x = 5)
-                ast_node *RhsNode = 0;
-
                 consume(p, TOKEN_EQUALS);
 
-                // TODO: Parse expression rather than just one.
-                if (peek(p)->Type == TOKEN_IDENTIFIER) {
-                    if (peeking) break;
+                if (peeking) break;
 
-                    RhsNode = parse_assignment(p);
-                } else if (peek(p)->Type == TOKEN_NUMBER || peek(p)->Type == TOKEN_STRING_LIT) {
-                    if (peeking) break;
+                ast_node *RhsNode = parse_expression(p);
 
-                    RhsNode = parse_literal(p);
-                } else {
-                    parse_error(p, "Expected identifier or string/integer literal but got ");
-                    string_print(peek(p)->String);
+                if (!RhsNode) {
+                    Node = 0;
                     break;
                 }
 
@@ -227,46 +212,28 @@ ast_node *_parse_or_peek_statement(parser *p, bool peeking) {
                 Node->VarDecl.Name     = T->String;
                 Node->VarDecl.Init     = RhsNode;
             } else if (T->Type == TOKEN_EQUALS) {
-                token *Rhs = advance(p);
+                if (!peeking) Node = node(p, NODE_ASSIGN);
 
-                if (peek(p)->Type != TOKEN_END_STATEMENT) {
-                    parse_error(p, "Expected ; at end of statement.");
+                ast_node *RhsNode = parse_expression(p);
+
+                if (!RhsNode) {
                     Node = 0;
                     break;
                 }
 
-                if (Rhs->Type == TOKEN_IDENTIFIER) {
-                    if (peeking) break;
-
-                    ast_node *Ident   = node(p, NODE_IDENT);
-                    Ident->Ident.Name = Rhs->String;
-
-                    Node                = node(p, NODE_ASSIGN);
-                    Node->Assign.Target = Curr->String;
-                    Node->Assign.Value  = Ident;
-                } else if (Rhs->Type == TOKEN_NUMBER || Rhs->Type == TOKEN_STRING_LIT) {
-                    if (peeking) break;
-
-                    back(p);
-                    ast_node *Value = parse_literal(p);
-
-                    Node                = node(p, NODE_ASSIGN);
-                    Node->Assign.Target = Curr->String;
-                    Node->Assign.Value  = Value;
-                } else {
-                    parse_error(p, "Expected identifier or string/integer literal but got ");
-                    string_print(peek(p)->String);
-                }
+                Node                = node(p, NODE_ASSIGN);
+                Node->Assign.Target = Curr->String;
+                Node->Assign.Value  = RhsNode;
             }
             break;
         }
         default:
             p->i = Saved;
-            return NULL;
+            return 0;
     }
 
     if (!peeking) {
-        consume(p, TOKEN_END_STATEMENT);
+        if (Curr->Type != TOKEN_OPEN_SCOPE) consume(p, TOKEN_END_STATEMENT);
     } else {
         p->i = Saved;
     }
@@ -275,7 +242,6 @@ ast_node *_parse_or_peek_statement(parser *p, bool peeking) {
 }
 
 ast_node *parse_statement(parser *p) { return _parse_or_peek_statement(p, false); }
-
 bool is_statement(parser *p) { return _parse_or_peek_statement(p, true) != 0; }
 
 ast_node *parse_block(parser *p) {
@@ -290,6 +256,7 @@ ast_node *parse_block(parser *p) {
     while (true) {
         if (is_statement(p)) {
             ast_node *Expr = parse_statement(p);
+
             Block->Block.Statements[Block->Block.StatementCount++] = Expr;
         } else {
             token *Tok = advance(p);
@@ -427,11 +394,12 @@ ast_node *parse(memory_arena *arena, token_list tokens) {
 void print_function_node(ast_node *node) {
     if (node->Type != NODE_FUNC_DEF) return;
 
-    printf("FUNCTION ");
-    string_print(node->FuncDef.Name);
-    printf("  (returns): ");
-    string_print(node->FuncDef.ReturnType);
-    printf(",  (params): ");
+    printf("[Function] ");
+    string_print_fmt(node->FuncDef.Name, 10);
+    printf("(returns): ");
+    string_print_fmt(node->FuncDef.ReturnType, 10);
+    printf("(params): ");
+
     for (int i = 0; i < node->FuncDef.ParamCount; i++) {
         string_print(node->FuncDef.Params[i]->VarDecl.TypeName);
         printf(" ");
@@ -445,14 +413,18 @@ void print_function_node(ast_node *node) {
 }
 
 void print_node(ast_node *node) {
-    printf("[NODE] :: ");
-
     switch (node->Type) {
+        case NODE_PROGRAM:
+            printf("[Program Root]\n");
+            break;
         case NODE_FUNC_DEF:
             print_function_node(node);
             break;
+        case NODE_BLOCK:
+            printf("[Block]\n");
+            break;
         case NODE_RETURN:
-            printf("return ");
+            printf("[Return] ");
 
             ast_node *RetVal = node->Return.Value;
 
@@ -465,12 +437,30 @@ void print_node(ast_node *node) {
 
             printf("\n");
             break;
+        case NODE_ASSIGN:
+            string_print(node->Assign.Target);
+            printf(" = ");
+            print_node(node->Assign.Value);
+            printf("\n");
+            break;
         case NODE_VAR_DECL:
             string_print(node->VarDecl.TypeName);
             printf(" ");
             string_print(node->VarDecl.Name);
             printf(" = ");
-            printf("%lld\n", node->VarDecl.Init->IntegerLit.Value);
+            print_node(node->VarDecl.Init);
+            printf("\n");
+            break;
+        case NODE_INT_LIT:
+            printf("%lld", node->IntegerLit.Value);
+            break;
+        case NODE_STRING_LIT:
+            printf("\"");
+            string_print(node->StringLit.Value);
+            printf("\"");
+            break;
+        case NODE_IDENT:
+            string_print(node->Ident.Name);
             break;
         default:
             printf("(didn't implement printing for node type %d yet!)\n", node->Type);
@@ -497,5 +487,35 @@ void print_at(parser *p) {
 
         print_token(T);
         printf("\n");
+    }
+}
+
+void _print_tree(ast_node *ast, int depth) {
+    printf("%*s", depth * 4, "");
+    print_node(ast);
+
+    switch (ast->Type) {
+        case NODE_PROGRAM:
+            assert(depth == 0);
+
+            for (int i = 0; i < ast->Program.FunctionCount; i++) {
+                _print_tree(ast->Program.Functions[i], depth + 1);
+            }
+            for (int i = 0; i < ast->Program.GlobalVarCount; i++) {
+                _print_tree(ast->Program.GlobalVars[i], depth + 1);
+            }
+            break;
+        case NODE_FUNC_DEF:
+            _print_tree(ast->FuncDef.Body, depth + 1);
+            break;
+        case NODE_BLOCK:
+            for (int i = 0; i < ast->Block.StatementCount; i++) {
+                ast_node *Stmt = ast->Block.Statements[i];
+                _print_tree(Stmt, depth + 1);
+            }
+            break;
+        default:
+            // Leaf node
+            break;
     }
 }

@@ -17,6 +17,14 @@ void string_print(string s) {
     printf("%.*s", (int)s.Length, s.Data);
 }
 
+void string_print_fmt(string s, int width) {
+    string_print(s);
+    if (s.Length < width) {
+        int Spaces = width - s.Length;
+        printf("%*s", Spaces, "");
+    }
+}
+
 bool string_equals(string a, string b) {
     if (b.Length != a.Length) return false;
 
