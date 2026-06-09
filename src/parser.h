@@ -4,26 +4,28 @@
 
 #define MAX_STATEMENTS 2048
 
-#define print_tree(ast) _print_tree(ast, 0)
+#define consume(p, token) _consume(p, token, __FILE__, __LINE__)
 
 typedef enum {
+    NODE_INVALID = 0,
     NODE_PROGRAM,
     NODE_FUNC_DEF,
     NODE_BLOCK,
     NODE_VAR_DECL,
     NODE_ASSIGN,
     NODE_RETURN,
-
     NODE_IF,
     NODE_WHILE,
-    //NODE_FOR, // not as important rn
+    NODE_FOR,
+    NODE_STRUCT,
     NODE_CALL,
     NODE_BINARY_OP,
     NODE_UNARY_OP,
     NODE_IDENT,
     NODE_INT_LIT,
     NODE_FLOAT_LIT,
-    NODE_STRING_LIT
+    NODE_STRING_LIT,
+    NODE_CHAR_LIT,
 } node_type;
 
 typedef struct ast_node {
@@ -45,6 +47,7 @@ typedef struct ast_node {
             struct ast_node **Params;  // array of NODE_VAR_DECL
             int ParamCount;
             struct ast_node *Body;     // NODE_BLOCK
+            //struct ast_node **Functions; // TODO: Implement storing nested functions here instead of needing to walk through Body
         } FuncDef;
 
         // NODE_BLOCK
@@ -63,7 +66,7 @@ typedef struct ast_node {
         // NODE_BINARY_OP
         struct {
             token_type Operation;
-            struct ast_node *left, *right;
+            struct ast_node *Left, *Right;
         } BinaryOp;
 
         // NODE_UNARY_OP
@@ -76,6 +79,16 @@ typedef struct ast_node {
         struct {
             struct ast_node *Condition, *ThenBlock, *ElseBlock;
         } If;
+
+        // NODE_WHILE
+        struct {
+            struct ast_node *Condition, *Body;
+        } While;
+
+        // NODE_FOR
+        struct {
+            struct ast_node *Init, *Condition, *Advance, *Body;
+        } For;
 
         // NODE_CALL
         struct {
@@ -108,6 +121,10 @@ typedef struct ast_node {
         } StringLit;
 
         struct {
+            char Value;
+        } CharLit;
+
+        struct {
             string Name;
         } Ident;
     };
@@ -122,7 +139,26 @@ typedef struct {
     memory_arena *Arena;
 } parser;
 
+ast_node *node(parser *p, node_type type);
+
 ast_node *parse(memory_arena *arena, token_list tokens);
 void print_node(ast_node *node);
 void print_at(parser *p);
 ast_node *parse_block(parser *p);
+ast_node *parse_function(parser *p);
+ast_node *parse_function_call(parser *p);
+bool is_function(parser *p);
+ast_node *parse_expression(parser *p);
+ast_node *parse_identifier(parser *p);
+ast_node *parse_literal(parser *p);
+token *peek(parser *p);
+void parse_error(parser *p, const char *format, ...);
+bool has_next(parser *p);
+token *advance(parser *p);
+
+bool is_function_call(parser *p);
+
+node_type next_statement_type(parser *p);
+ast_node *parse_statement(parser *p, node_type type);
+token *_consume(parser *p, token_type expected, const char *_file, int _line);
+void print_tree(ast_node *ast);

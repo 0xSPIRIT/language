@@ -17,3 +17,10 @@ AlignConsecutiveDeclarations: false
 # Spaces inside elements
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
+
+AllowShortCaseLabelsOnASingleLine: true
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+  AlignCaseColons: false

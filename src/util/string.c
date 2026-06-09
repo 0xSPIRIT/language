@@ -17,6 +17,30 @@ void string_print(string s) {
     printf("%.*s", (int)s.Length, s.Data);
 }
 
+void string_print_b(string s) {
+    printf(ANSI_FG_BLUE);
+    printf("%.*s", (int)s.Length, s.Data);
+    printf(ANSI_RESET);
+}
+
+void string_print_b2(string s) {
+    printf(ANSI_FG_YELLOW);
+    printf("%.*s", (int)s.Length, s.Data);
+    printf(ANSI_RESET);
+}
+
+void string_print_b3(string s) {
+    printf(ANSI_FG_GREEN);
+    printf("%.*s", (int)s.Length, s.Data);
+    printf(ANSI_RESET);
+}
+
+void string_print_b4(string s) {
+    printf(ANSI_FG_MAGENTA);
+    printf("%.*s", (int)s.Length, s.Data);
+    printf(ANSI_RESET);
+}
+
 void string_print_fmt(string s, int width) {
     string_print(s);
     if (s.Length < width) {

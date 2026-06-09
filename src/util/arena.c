@@ -2,12 +2,13 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 memory_arena make_arena() {
     memory_arena Result = {};
 
     Result.Capacity = GB(8);
-    Result.Data     = (char *)mmap(NULL, Result.Capacity, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    Result.Data     = mmap(NULL, Result.Capacity, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
     if (!PageSize) {
         PageSize = sysconf(_SC_PAGESIZE);

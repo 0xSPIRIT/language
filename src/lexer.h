@@ -10,7 +10,26 @@ typedef enum {
     TOKEN_IDENTIFIER = 2,
     TOKEN_KEYWORD    = 3,
     TOKEN_STRING_LIT = 4,
+    TOKEN_CHAR_LIT   = 5,
 
+    TOKEN_EQUALS_EQUALS,
+    TOKEN_OR,
+    TOKEN_AND,
+    TOKEN_BANG_EQUALS,
+    TOKEN_LESS_EQUALS,
+    TOKEN_MORE_EQUALS,
+
+    TOKEN_PRE_INC,
+    TOKEN_POST_INC,
+
+    TOKEN_PLUS_EQ,
+    TOKEN_MINUS_EQ,
+    TOKEN_TIMES_EQ,
+    TOKEN_DIV_EQ,
+    TOKEN_MOD_EQ,
+
+    TOKEN_PERCENT       = '%',
+    TOKEN_BANG          = '!',
     TOKEN_PLUS          = '+',
     TOKEN_MINUS         = '-',
     TOKEN_MULTIPLY      = '*',
@@ -27,19 +46,23 @@ typedef enum {
     TOKEN_END_STATEMENT = ';',
     TOKEN_COMMA         = ',',
     TOKEN_QUOTE         = '"',
+    TOKEN_CHAR_QUOTE    = '\'',
 } token_type;
 
 typedef enum {
     KEYWORD_INVALID = 0,
     KEYWORD_IF,
     KEYWORD_ELSE,
+    KEYWORD_FOR,
+    KEYWORD_WHILE,
     KEYWORD_SWITCH,
     KEYWORD_STRUCT,
     KEYWORD_RETURN
 } keyword;
 
 const string Keywords[] = {
-    CSTR("if"), CSTR("else"), CSTR("switch"), CSTR("struct"), CSTR("return"),
+    CSTR("if"),     CSTR("else"),   CSTR("for"),    CSTR("while"),
+    CSTR("switch"), CSTR("struct"), CSTR("return"),
 };
 
 typedef struct {
@@ -62,6 +85,10 @@ bool is_letter(char ch);
 bool is_single(char c);
 
 void print_token(token *tok);
+
+char *get_operation_str(token_type type);
+
+bool is_token_binary_op(token_type type);
 
 string get_keyword_str(keyword Keyword);
 keyword keyword_from_index(int Index);
