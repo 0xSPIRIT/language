@@ -19,8 +19,8 @@ typedef enum {
     TOKEN_LESS_EQUALS,
     TOKEN_MORE_EQUALS,
 
-    TOKEN_PRE_INC,
-    TOKEN_POST_INC,
+    TOKEN_INC,
+    TOKEN_DEC,
 
     TOKEN_PLUS_EQ,
     TOKEN_MINUS_EQ,

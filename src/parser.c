@@ -251,31 +251,21 @@ ast_node *parse_block(parser *p) {
 
     Block->Block.Statements = arena_push(p->Arena, MAX_STATEMENTS * sizeof(ast_node *));
 
-    consume(p, TOKEN_OPEN_SCOPE);
+    bool Single = peek(p)->Type != TOKEN_OPEN_SCOPE;
 
-    int Balance = 1;
+    if (!Single) consume(p, TOKEN_OPEN_SCOPE);
 
-    while (true) {
+    while (has_next(p) && peek(p)->Type != TOKEN_CLOSE_SCOPE) {
         node_type StatementType = next_statement_type(p);
 
-        if (StatementType) {
-            ast_node *Expr = parse_statement(p, StatementType);
+        ast_node *Expr = parse_statement(p, StatementType);
 
-            Block->Block.Statements[Block->Block.StatementCount++] = Expr;
-        } else {
-            token *Tok = advance(p);
+        Block->Block.Statements[Block->Block.StatementCount++] = Expr;
 
-            if (Tok) {
-                if (Tok->Type == TOKEN_OPEN_SCOPE)
-                    Balance++;
-                else if (Tok->Type == TOKEN_CLOSE_SCOPE)
-                    Balance--;
-
-                if (Balance == 0) break;
-            } else
-                break;
-        }
+        if (Single) break;
     }
+
+    if (!Single) consume(p, TOKEN_CLOSE_SCOPE);
 
     return Block;
 }
@@ -354,11 +344,12 @@ ast_node *parse_for(parser *p) {
     }
 
     // Advance
-    if (peek(p)->Type == TOKEN_CLOSE_PAREN || peek(p)->Type == TOKEN_OPEN_SCOPE) {
-        advance(p);  // left blank
+    if (peek(p)->Type == TOKEN_CLOSE_PAREN) {
     } else {
         Node->For.Advance = parse_expression(p);
     }
+
+    advance(p);
 
     Node->For.Body = parse_block(p);
 
@@ -419,7 +410,10 @@ ast_node *parse_statement(parser *p, node_type type) {
         case NODE_IF:    Node = parse_if(p); break;
         case NODE_FOR:   Node = parse_for(p); break;
         case NODE_WHILE: Node = parse_while(p); break;
-        default:         parse_error(p, "We didn't implement parsing this type of statement yet!"); break;
+        default:
+            Node            = parse_expression(p);
+            ExpectSemicolon = true;
+            break;
     }
 
     if (ExpectSemicolon) consume(p, TOKEN_END_STATEMENT);
@@ -585,6 +579,7 @@ void print_node_type(ast_node *node) {
         case NODE_RETURN:     printf("[Return]"); break;
         case NODE_IF:         printf("[If]"); break;
         case NODE_WHILE:      printf("[While]"); break;
+        case NODE_FOR:        printf("[For]"); break;
         case NODE_CALL:       printf("[Call]"); break;
         case NODE_BINARY_OP:  printf("[Binary Op]"); break;
         case NODE_UNARY_OP:   printf("[Unary Op]"); break;
@@ -642,12 +637,13 @@ void print_node(ast_node *node) {
             print_node(node->While.Condition);
             break;
         case NODE_FOR:
-            printf(ANSI_DIM "Init: " ANSI_RESET);
-            print_node(node->For.Init);
-            printf(ANSI_DIM "Condition: " ANSI_RESET);
-            print_node(node->For.Condition);
-            printf(ANSI_DIM "Advance: " ANSI_RESET);
-            print_node(node->For.Advance);
+            printf(ANSI_DIM "{ Init: " ANSI_RESET);
+            if (node->For.Init) print_node(node->For.Init); else printf(ANSI_DIM "(none)" ANSI_RESET);
+            printf(ANSI_DIM ", Condition: " ANSI_RESET);
+            if (node->For.Condition) print_node(node->For.Condition); else printf(ANSI_DIM "(none)" ANSI_RESET);
+            printf(ANSI_DIM ", Advance: " ANSI_RESET);
+            if (node->For.Advance) print_node(node->For.Advance); else printf(ANSI_DIM "(none)" ANSI_RESET);
+            printf(ANSI_DIM " }" ANSI_RESET);
             break;
         case NODE_RETURN: print_node(node->Return.Value); break;
         case NODE_ASSIGN:
@@ -704,6 +700,8 @@ void print_node(ast_node *node) {
             printf(ANSI_DIM "{ Op: " ANSI_RESET "%s, " ANSI_DIM "Operand: " ANSI_RESET,
                    token_name(node->UnaryOp.Operation));
             print_node(node->UnaryOp.Operand);
+            printf(ANSI_DIM ", First: " ANSI_FG_MAGENTA "%s" ANSI_RESET,
+                   node->UnaryOp.First ? "true" : "false");
             printf(ANSI_DIM " }" ANSI_RESET);
             break;
         default: printf("(didn't implement printing for node type %d yet!)", node->Type); break;

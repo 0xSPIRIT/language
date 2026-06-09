@@ -2,38 +2,47 @@
 
 char *token_name(token_type type) {
     switch (type) {
-        case TOKEN_NONE: return "none";
-        case TOKEN_NUMBER: return "number";
-        case TOKEN_IDENTIFIER: return "identifier";
-        case TOKEN_KEYWORD: return "keyword";
-        case TOKEN_STRING_LIT: return "string literal";
-        case TOKEN_CHAR_LIT: return "char literal";
-        case TOKEN_PLUS: return "+";
-        case TOKEN_MINUS: return "-";
-        case TOKEN_MULTIPLY: return "*";
-        case TOKEN_DIVIDE: return "/";
-        case TOKEN_EQUALS: return "=";
-        case TOKEN_LESS: return "<";
-        case TOKEN_MORE: return ">";
-        case TOKEN_OPEN_PAREN: return "(";
-        case TOKEN_CLOSE_PAREN: return ")";
-        case TOKEN_OPEN_SQUARE: return "[";
-        case TOKEN_CLOSE_SQUARE: return "]";
-        case TOKEN_OPEN_SCOPE: return "{";
-        case TOKEN_CLOSE_SCOPE: return "}";
+        case TOKEN_NONE:          return "none";
+        case TOKEN_NUMBER:        return "number";
+        case TOKEN_IDENTIFIER:    return "identifier";
+        case TOKEN_KEYWORD:       return "keyword";
+        case TOKEN_STRING_LIT:    return "string literal";
+        case TOKEN_CHAR_LIT:      return "char literal";
+        case TOKEN_PLUS:          return "+";
+        case TOKEN_MINUS:         return "-";
+        case TOKEN_MULTIPLY:      return "*";
+        case TOKEN_DIVIDE:        return "/";
+        case TOKEN_EQUALS:        return "=";
+        case TOKEN_LESS:          return "<";
+        case TOKEN_MORE:          return ">";
+        case TOKEN_OPEN_PAREN:    return "(";
+        case TOKEN_CLOSE_PAREN:   return ")";
+        case TOKEN_OPEN_SQUARE:   return "[";
+        case TOKEN_CLOSE_SQUARE:  return "]";
+        case TOKEN_OPEN_SCOPE:    return "{";
+        case TOKEN_CLOSE_SCOPE:   return "}";
         case TOKEN_END_STATEMENT: return ";";
-        case TOKEN_COMMA: return ",";
-        case TOKEN_QUOTE: return "\"";
-        case TOKEN_CHAR_QUOTE: return "'";
+        case TOKEN_COMMA:         return ",";
+        case TOKEN_QUOTE:         return "\"";
+        case TOKEN_CHAR_QUOTE:    return "'";
 
         case TOKEN_EQUALS_EQUALS: return "==";
-        case TOKEN_OR: return "||";
-        case TOKEN_AND: return "&&";
-        case TOKEN_BANG_EQUALS: return "!=";
-        case TOKEN_LESS_EQUALS: return "<=";
-        case TOKEN_MORE_EQUALS: return ">=";
-        case TOKEN_PERCENT: return "%";
-        case TOKEN_BANG: return "!";
+        case TOKEN_OR:            return "||";
+        case TOKEN_AND:           return "&&";
+        case TOKEN_BANG_EQUALS:   return "!=";
+        case TOKEN_LESS_EQUALS:   return "<=";
+        case TOKEN_MORE_EQUALS:   return ">=";
+        case TOKEN_PERCENT:       return "%";
+        case TOKEN_BANG:          return "!";
+
+        case TOKEN_INC: return "++";
+        case TOKEN_DEC: return "--";
+
+        case TOKEN_PLUS_EQ:  return "+=";
+        case TOKEN_MINUS_EQ: return "-=";
+        case TOKEN_TIMES_EQ: return "*=";
+        case TOKEN_DIV_EQ:   return "/=";
+        case TOKEN_MOD_EQ:   return "%=";
 
         default: return "(unknown token)";
     }
@@ -47,8 +56,8 @@ bool is_token_binary_op(token_type type) {
         case TOKEN_MULTIPLY:
         case TOKEN_DIVIDE:
         case TOKEN_LESS:
-        case TOKEN_MORE: return true;
-        default: return false;
+        case TOKEN_MORE:     return true;
+        default:             return false;
     }
 }
 
@@ -88,8 +97,8 @@ bool is_single(char c) {
         case '\'':
         case ',':
         case '!':
-        case '%': return true;
-        default: return false;
+        case '%':  return true;
+        default:   return false;
     }
 }
 
@@ -212,6 +221,20 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
                 Type = TOKEN_AND;
             else if (string_equals(Str, CSTR("||")))
                 Type = TOKEN_OR;
+            else if (string_equals(Str, CSTR("+=")))
+                Type = TOKEN_PLUS_EQ;
+            else if (string_equals(Str, CSTR("-=")))
+                Type = TOKEN_MINUS_EQ;
+            else if (string_equals(Str, CSTR("*=")))
+                Type = TOKEN_TIMES_EQ;
+            else if (string_equals(Str, CSTR("/=")))
+                Type = TOKEN_DIV_EQ;
+            else if (string_equals(Str, CSTR("%=")))
+                Type = TOKEN_MOD_EQ;
+            else if (string_equals(Str, CSTR("++")))
+                Type = TOKEN_INC;
+            else if (string_equals(Str, CSTR("--")))
+                Type = TOKEN_DEC;
 
             if (Type) {
                 Tokens[TokenCount++] = (token){Type, Str};
@@ -222,7 +245,7 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
 
             continue;
         } else if (is_single(ch)) {
-single:
+        single:
             token tok;
             tok.Type             = (token_type)ch;
             tok.String           = (string){code.Data + i, 1};

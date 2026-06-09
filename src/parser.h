@@ -71,6 +71,7 @@ typedef struct ast_node {
 
         // NODE_UNARY_OP
         struct {
+            bool First; // If true, then prefix unary (--a), If false, then postfix unary (a++)
             token_type Operation;
             struct ast_node *Operand;
         } UnaryOp;

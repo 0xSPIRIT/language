@@ -39,7 +39,8 @@ static precedence infix_precedence(parser *p) {
         case TOKEN_MOD_EQ:   return PREC_ASSIGN;
 
         // Postfix ++ is an infix-position operator with no right operand.
-        case TOKEN_POST_INC: return PREC_POSTFIX;
+        case TOKEN_INC: return PREC_POSTFIX;
+        case TOKEN_DEC: return PREC_POSTFIX;
 
         default: return PREC_NONE;
     }
@@ -63,16 +64,19 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec);
 static ast_node *parse_prefix(parser *p) {
     token *Tok = peek(p);
 
-    // Prefix ++x  →  NODE_UNARY_OP with Operation = TOKEN_PRE_INC
-    if (Tok->Type == TOKEN_PRE_INC) {
+    // Prefix ++/--  -> NODE_UNARY_OP with Operation = TOKEN_PRE_INC
+    if (Tok->Type == TOKEN_INC || Tok->Type == TOKEN_DEC) {
         advance(p);
         ast_node *Operand = parse_expression_prec(p, PREC_UNARY);
+
         if (!Operand) {
             parse_error(p, "Expected expression after prefix '++'.");
             return NULL;
         }
+
         ast_node *N          = node(p, NODE_UNARY_OP);
-        N->UnaryOp.Operation = TOKEN_PRE_INC;
+        N->UnaryOp.First     = true;
+        N->UnaryOp.Operation = Tok->Type;
         N->UnaryOp.Operand   = Operand;
         return N;
     }
@@ -128,10 +132,11 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec) {
 
         token *Op = advance(p);
 
-        // Postfix ++  →  NODE_UNARY_OP, no right-hand side to parse.
-        if (Op->Type == TOKEN_POST_INC) {
+        // Postfix ++/--  ->  NODE_UNARY_OP, no right-hand side to parse.
+        if (Op->Type == TOKEN_INC || Op->Type == TOKEN_DEC) {
             ast_node *N          = node(p, NODE_UNARY_OP);
-            N->UnaryOp.Operation = TOKEN_POST_INC;
+            N->UnaryOp.First     = false;
+            N->UnaryOp.Operation = Op->Type;
             N->UnaryOp.Operand   = Left;
             Left                 = N;
             continue;
@@ -153,14 +158,16 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec) {
             continue;
         }
 
-        // Compound assignment  x += expr  →  x = x + expr, right-associative.
+        // Compound assignment  x += expr  ->  x = x + expr, right-associative.
         token_type ArithOp = compound_assign_op(Op->Type);
         if (ArithOp != TOKEN_NONE) {
             ast_node *Right = parse_expression_prec(p, PREC_ASSIGN - 1);
+
             if (!Right) {
                 parse_error(p, "Expected right-hand side after '%s'.", token_name(Op->Type));
                 return NULL;
             }
+
             // Build the inner  x + expr  node.
             ast_node *BinOp           = node(p, NODE_BINARY_OP);
             BinOp->BinaryOp.Operation = ArithOp;
