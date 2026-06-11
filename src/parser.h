@@ -12,6 +12,7 @@ typedef enum {
     NODE_FUNC_DEF,
     NODE_BLOCK,
     NODE_VAR_DECL,
+    NODE_TYPE,
     NODE_ASSIGN,
     NODE_RETURN,
     NODE_IF,
@@ -28,13 +29,27 @@ typedef enum {
     NODE_CHAR_LIT,
 } node_type;
 
+typedef enum { TYPE_POINTER, TYPE_BUILTIN, TYPE_ARRAY } data_type;
+
+// We're targetting 32-bit, so there are no 64-bit words
+typedef enum {
+    BUILTIN_TYPE_S8,
+    BUILTIN_TYPE_S16,
+    BUILTIN_TYPE_S32,
+    BUILTIN_TYPE_U8,
+    BUILTIN_TYPE_U16,
+    BUILTIN_TYPE_U32,
+    BUILTIN_TYPE_FLOAT,
+    BUILTIN_TYPE_VOID,
+} builtin_type;
+
 typedef struct ast_node {
     node_type Type;
 
     union {
         // NODE_PROGRAM
         struct {
-            struct ast_node **Functions;   // array of NODE_FUNC_DEF
+            struct ast_node **Functions;  // array of NODE_FUNC_DEF
             int FunctionCount;
             struct ast_node **GlobalVars;  // array of NODE_VAR_DECL
             int GlobalVarCount;
@@ -46,8 +61,9 @@ typedef struct ast_node {
             string ReturnType;
             struct ast_node **Params;  // array of NODE_VAR_DECL
             int ParamCount;
-            struct ast_node *Body;     // NODE_BLOCK
-            //struct ast_node **Functions; // TODO: Implement storing nested functions here instead of needing to walk through Body
+            struct ast_node *Body;  // NODE_BLOCK
+            // struct ast_node **Functions; // TODO: Implement storing nested functions here instead
+            // of needing to walk through Body
         } FuncDef;
 
         // NODE_BLOCK
@@ -55,6 +71,18 @@ typedef struct ast_node {
             struct ast_node **Statements;
             int StatementCount;
         } Block;
+
+        // NODE_TYPE
+        struct {
+            string TypeName;
+            data_type DataType;
+            builtin_type BuiltinType;
+
+            union {
+                struct ast_node *TypePointingTo;
+                struct ast_node *TypeArrayOf;
+            };
+        } DataType;
 
         // NODE_VAR_DECL
         struct {
@@ -71,7 +99,7 @@ typedef struct ast_node {
 
         // NODE_UNARY_OP
         struct {
-            bool First; // If true, then prefix unary (--a), If false, then postfix unary (a++)
+            bool First;  // If true, then prefix unary (--a), If false, then postfix unary (a++)
             token_type Operation;
             struct ast_node *Operand;
         } UnaryOp;

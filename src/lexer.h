@@ -32,7 +32,7 @@ typedef enum {
     TOKEN_BANG          = '!',
     TOKEN_PLUS          = '+',
     TOKEN_MINUS         = '-',
-    TOKEN_MULTIPLY      = '*',
+    TOKEN_STAR          = '*',
     TOKEN_DIVIDE        = '/',
     TOKEN_EQUALS        = '=',
     TOKEN_LESS          = '<',

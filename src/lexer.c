@@ -10,7 +10,7 @@ char *token_name(token_type type) {
         case TOKEN_CHAR_LIT:      return "char literal";
         case TOKEN_PLUS:          return "+";
         case TOKEN_MINUS:         return "-";
-        case TOKEN_MULTIPLY:      return "*";
+        case TOKEN_STAR:          return "*";
         case TOKEN_DIVIDE:        return "/";
         case TOKEN_EQUALS:        return "=";
         case TOKEN_LESS:          return "<";
@@ -53,11 +53,11 @@ bool is_token_binary_op(token_type type) {
         case TOKEN_EQUALS:
         case TOKEN_PLUS:
         case TOKEN_MINUS:
-        case TOKEN_MULTIPLY:
+        case TOKEN_STAR:
         case TOKEN_DIVIDE:
         case TOKEN_LESS:
-        case TOKEN_MORE:     return true;
-        default:             return false;
+        case TOKEN_MORE:   return true;
+        default:           return false;
     }
 }
 

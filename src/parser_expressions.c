@@ -26,7 +26,7 @@ static precedence infix_precedence(parser *p) {
         case TOKEN_MORE_EQUALS:   return PREC_COMPARE;
         case TOKEN_PLUS:          return PREC_TERM;
         case TOKEN_MINUS:         return PREC_TERM;
-        case TOKEN_MULTIPLY:      return PREC_FACTOR;
+        case TOKEN_STAR:          return PREC_FACTOR;
         case TOKEN_DIVIDE:        return PREC_FACTOR;
         case TOKEN_PERCENT:       return PREC_FACTOR;
 
@@ -52,7 +52,7 @@ static token_type compound_assign_op(token_type t) {
     switch (t) {
         case TOKEN_PLUS_EQ:  return TOKEN_PLUS;
         case TOKEN_MINUS_EQ: return TOKEN_MINUS;
-        case TOKEN_TIMES_EQ: return TOKEN_MULTIPLY;
+        case TOKEN_TIMES_EQ: return TOKEN_STAR;
         case TOKEN_DIV_EQ:   return TOKEN_DIVIDE;
         case TOKEN_MOD_EQ:   return TOKEN_PERCENT;
         default:             return TOKEN_NONE;
