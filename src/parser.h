@@ -29,19 +29,20 @@ typedef enum {
     NODE_CHAR_LIT,
 } node_type;
 
-typedef enum { TYPE_POINTER, TYPE_BUILTIN, TYPE_ARRAY } data_type;
-
 // We're targetting 32-bit, so there are no 64-bit words
 typedef enum {
-    BUILTIN_TYPE_S8,
-    BUILTIN_TYPE_S16,
-    BUILTIN_TYPE_S32,
-    BUILTIN_TYPE_U8,
-    BUILTIN_TYPE_U16,
-    BUILTIN_TYPE_U32,
-    BUILTIN_TYPE_FLOAT,
-    BUILTIN_TYPE_VOID,
-} builtin_type;
+    TYPE_S8,
+    TYPE_S16,
+    TYPE_S32,
+    TYPE_U8,
+    TYPE_U16,
+    TYPE_U32,
+    TYPE_FLOAT,
+    TYPE_VOID,
+    TYPE_PTR,
+    TYPE_ARRAY,
+    TYPE_STRUCT
+} type;
 
 typedef struct ast_node {
     node_type Type;
@@ -58,7 +59,7 @@ typedef struct ast_node {
         // NODE_FUNC_DEF
         struct {
             string Name;
-            string ReturnType;
+            struct ast_node *ReturnType;
             struct ast_node **Params;  // array of NODE_VAR_DECL
             int ParamCount;
             struct ast_node *Body;  // NODE_BLOCK
@@ -72,22 +73,21 @@ typedef struct ast_node {
             int StatementCount;
         } Block;
 
-        // NODE_TYPE
+        // NODE_TYPE:    Example: [10]**int a => { Type = TYPE_ARR, PointingTo = { Type = TYPE_PTR,
+        //               PointingTo = { TYPE_PTR, PointingTo = { Type = TYPE_S16, PointingTo = null
+        //               }}}}
         struct {
-            string TypeName;
-            data_type DataType;
-            builtin_type BuiltinType;
+            type Type;
+            string Name;  // nullable
+            int ArraySize;
 
-            union {
-                struct ast_node *TypePointingTo;
-                struct ast_node *TypeArrayOf;
-            };
+            struct ast_node *PointingTo;  // An ast_node *DataType
         } DataType;
 
         // NODE_VAR_DECL
         struct {
             string Name;
-            string TypeName;
+            struct ast_node *Type;  // points to NODE_TYPE
             struct ast_node *Init;  // nullable
         } VarDecl;
 

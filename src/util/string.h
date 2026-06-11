@@ -22,3 +22,4 @@ void string_print_b4(string s); // literals
 void string_print_fmt(string s, int width);
 bool string_equals(string a, string b);
 char *string_to_cstr(string s);
+long long string_to_ll(string s);
