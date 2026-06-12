@@ -13,6 +13,7 @@ UseTab: Never
 AlignAfterOpenBracket: Align
 AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: false
+PointerAlignment: Right
 
 # Spaces inside elements
 SpacesInParentheses: false

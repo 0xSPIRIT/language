@@ -1,6 +1,10 @@
-[x] Make identifiers able to have numbers in their names
+[x] Arrays
+  [x] Declarations
+  [x] Access
+[x] Structs
+  [x] Declaration
+  [x] Access
+[x] Comma separated declaration
+
 [ ] token: Add file, row & column fields from parser
 [ ] ast_node: Add file, row & column which is gotten from the token fields at node() call
-[ ] Make anything with identifiers, binary operations into expressions
-    eg. sum(a, b) is an expression, a is an expression as well as b
-[ ] Parse if

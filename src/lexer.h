@@ -2,7 +2,6 @@
 
 #include "util/arena.h"
 #include "util/string.h"
-#include "util/util.h"
 
 typedef enum {
     TOKEN_NONE       = 0,
@@ -28,11 +27,12 @@ typedef enum {
     TOKEN_DIV_EQ,
     TOKEN_MOD_EQ,
 
+    TOKEN_DOT           = '.',
     TOKEN_PERCENT       = '%',
     TOKEN_BANG          = '!',
     TOKEN_PLUS          = '+',
     TOKEN_MINUS         = '-',
-    TOKEN_MULTIPLY      = '*',
+    TOKEN_STAR          = '*',
     TOKEN_DIVIDE        = '/',
     TOKEN_EQUALS        = '=',
     TOKEN_LESS          = '<',

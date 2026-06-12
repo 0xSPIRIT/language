@@ -3,17 +3,9 @@
 
 #include "lexer.c"
 #include "parser.c"
-
 #include "util/arena.c"
 #include "util/string.c"
 #include "util/util.c"
-
-#define TEST_ASM \
-    "\
-.globl main\n\
-main:\n\
-    movl    $67, %eax\n\
-    ret\n"
 
 int main(int argc, char **argv) {
     memory_arena Arena = make_arena();
@@ -21,9 +13,9 @@ int main(int argc, char **argv) {
     string Filename;
 
     if (argc == 1)
-        Filename = CSTR("../test/c.l");
+        Filename = CSTR("../test/a.l");
     else
-        Filename = (string){ argv[1], strlen(argv[1]) };
+        Filename = (string){argv[1], strlen(argv[1])};
 
     string Code = read_entire_file(&Arena, Filename.Data);
 

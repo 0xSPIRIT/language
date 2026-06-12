@@ -12,7 +12,7 @@ typedef enum {
     NODE_FUNC_DEF,
     NODE_BLOCK,
     NODE_VAR_DECL,
-    NODE_ASSIGN,
+    NODE_TYPE,
     NODE_RETURN,
     NODE_IF,
     NODE_WHILE,
@@ -28,13 +28,28 @@ typedef enum {
     NODE_CHAR_LIT,
 } node_type;
 
+// We're targetting 32-bit, so there are no 64-bit words
+typedef enum {
+    TYPE_S8,
+    TYPE_S16,
+    TYPE_S32,
+    TYPE_U8,
+    TYPE_U16,
+    TYPE_U32,
+    TYPE_FLOAT,
+    TYPE_VOID,
+    TYPE_PTR,
+    TYPE_ARRAY,
+    TYPE_STRUCT
+} type;
+
 typedef struct ast_node {
     node_type Type;
 
     union {
         // NODE_PROGRAM
         struct {
-            struct ast_node **Functions;   // array of NODE_FUNC_DEF
+            struct ast_node **Functions;  // array of NODE_FUNC_DEF
             int FunctionCount;
             struct ast_node **GlobalVars;  // array of NODE_VAR_DECL
             int GlobalVarCount;
@@ -43,11 +58,12 @@ typedef struct ast_node {
         // NODE_FUNC_DEF
         struct {
             string Name;
-            string ReturnType;
+            struct ast_node *ReturnType;
             struct ast_node **Params;  // array of NODE_VAR_DECL
             int ParamCount;
-            struct ast_node *Body;     // NODE_BLOCK
-            //struct ast_node **Functions; // TODO: Implement storing nested functions here instead of needing to walk through Body
+            struct ast_node *Body;  // NODE_BLOCK
+            // struct ast_node **Functions; // TODO: Implement storing nested functions here instead
+            // of needing to walk through Body
         } FuncDef;
 
         // NODE_BLOCK
@@ -56,11 +72,31 @@ typedef struct ast_node {
             int StatementCount;
         } Block;
 
+        // NODE_STRUCT
+        struct {
+            string Name;
+            struct ast_node **Fields; // array of NODE_VAR_DECL
+            int FieldCount;
+        } Struct;
+
+        // NODE_TYPE:    Example: [10]**int a => { Type = TYPE_ARR, PointingTo = { Type = TYPE_PTR,
+        //               PointingTo = { TYPE_PTR, PointingTo = { Type = TYPE_S16, PointingTo = null
+        //               }}}}
+        struct {
+            type Type;
+            string Name;  // nullable
+            int ArraySize;
+
+            struct ast_node *PointingTo;  // An ast_node *DataType
+        } DataType;
+
         // NODE_VAR_DECL
         struct {
             string Name;
-            string TypeName;
+            struct ast_node *Type;  // points to NODE_TYPE
             struct ast_node *Init;  // nullable
+            struct ast_node **ChildDecls; // int a, b, c; => b and c are NODE_VAR_DECL's stored here in a.
+            int ChildDeclsCount;
         } VarDecl;
 
         // NODE_BINARY_OP
@@ -71,7 +107,7 @@ typedef struct ast_node {
 
         // NODE_UNARY_OP
         struct {
-            bool First; // If true, then prefix unary (--a), If false, then postfix unary (a++)
+            bool First;  // If true, then prefix unary (--a), If false, then postfix unary (a++)
             token_type Operation;
             struct ast_node *Operand;
         } UnaryOp;
@@ -97,12 +133,6 @@ typedef struct ast_node {
             struct ast_node **Args;
             int ArgCount;
         } Call;
-
-        // NODE_ASSIGN
-        struct {
-            string Target;
-            struct ast_node *Value;
-        } Assign;
 
         // NODE_RETURN
         struct {
@@ -148,6 +178,7 @@ void print_at(parser *p);
 ast_node *parse_block(parser *p);
 ast_node *parse_function(parser *p);
 ast_node *parse_function_call(parser *p);
+ast_node *parse_var_decl(parser *p);
 bool is_function(parser *p);
 ast_node *parse_expression(parser *p);
 ast_node *parse_identifier(parser *p);

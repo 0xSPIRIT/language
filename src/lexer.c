@@ -1,5 +1,7 @@
 #include "lexer.h"
 
+#include "util/util.h"
+
 char *token_name(token_type type) {
     switch (type) {
         case TOKEN_NONE:          return "none";
@@ -10,7 +12,7 @@ char *token_name(token_type type) {
         case TOKEN_CHAR_LIT:      return "char literal";
         case TOKEN_PLUS:          return "+";
         case TOKEN_MINUS:         return "-";
-        case TOKEN_MULTIPLY:      return "*";
+        case TOKEN_STAR:          return "*";
         case TOKEN_DIVIDE:        return "/";
         case TOKEN_EQUALS:        return "=";
         case TOKEN_LESS:          return "<";
@@ -34,6 +36,7 @@ char *token_name(token_type type) {
         case TOKEN_MORE_EQUALS:   return ">=";
         case TOKEN_PERCENT:       return "%";
         case TOKEN_BANG:          return "!";
+        case TOKEN_DOT:           return ".";
 
         case TOKEN_INC: return "++";
         case TOKEN_DEC: return "--";
@@ -53,11 +56,11 @@ bool is_token_binary_op(token_type type) {
         case TOKEN_EQUALS:
         case TOKEN_PLUS:
         case TOKEN_MINUS:
-        case TOKEN_MULTIPLY:
+        case TOKEN_STAR:
         case TOKEN_DIVIDE:
         case TOKEN_LESS:
-        case TOKEN_MORE:     return true;
-        default:             return false;
+        case TOKEN_MORE:   return true;
+        default:           return false;
     }
 }
 
@@ -65,10 +68,6 @@ void print_token(token *tok) {
     printf("%-15s ", token_name(tok->Type));
 
     if (!is_single(tok->String.Data[0])) string_print(tok->String);
-}
-
-bool is_separator(char ch) {
-    return ch == ' ' || ch == '\n' || ch == '(' || ch == ')' || ch == '{' || ch == '}';
 }
 
 bool is_whitespace(char ch) { return ch == ' ' || ch == '\n'; }
@@ -97,6 +96,7 @@ bool is_single(char c) {
         case '\'':
         case ',':
         case '!':
+        case '.':
         case '%':  return true;
         default:   return false;
     }
