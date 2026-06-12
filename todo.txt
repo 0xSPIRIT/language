@@ -1,6 +1,10 @@
-[ ] Pointers
-[ ] Arrays
-[ ] Structs
+[x] Arrays
+  [x] Declarations
+  [x] Access
+[x] Structs
+  [x] Declaration
+  [x] Access
+[x] Comma separated declaration
 
 [ ] token: Add file, row & column fields from parser
 [ ] ast_node: Add file, row & column which is gotten from the token fields at node() call

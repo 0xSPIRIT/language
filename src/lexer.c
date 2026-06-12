@@ -1,5 +1,7 @@
 #include "lexer.h"
 
+#include "util/util.h"
+
 char *token_name(token_type type) {
     switch (type) {
         case TOKEN_NONE:          return "none";
@@ -34,6 +36,7 @@ char *token_name(token_type type) {
         case TOKEN_MORE_EQUALS:   return ">=";
         case TOKEN_PERCENT:       return "%";
         case TOKEN_BANG:          return "!";
+        case TOKEN_DOT:           return ".";
 
         case TOKEN_INC: return "++";
         case TOKEN_DEC: return "--";
@@ -67,10 +70,6 @@ void print_token(token *tok) {
     if (!is_single(tok->String.Data[0])) string_print(tok->String);
 }
 
-bool is_separator(char ch) {
-    return ch == ' ' || ch == '\n' || ch == '(' || ch == ')' || ch == '{' || ch == '}';
-}
-
 bool is_whitespace(char ch) { return ch == ' ' || ch == '\n'; }
 
 bool is_number(char ch) { return ch >= '0' && ch <= '9'; }
@@ -97,6 +96,7 @@ bool is_single(char c) {
         case '\'':
         case ',':
         case '!':
+        case '.':
         case '%':  return true;
         default:   return false;
     }

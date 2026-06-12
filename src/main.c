@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
     string Filename;
 
     if (argc == 1)
-        Filename = CSTR("../test/c.l");
+        Filename = CSTR("../test/a.l");
     else
         Filename = (string){argv[1], strlen(argv[1])};
 

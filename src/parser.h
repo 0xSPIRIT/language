@@ -13,7 +13,6 @@ typedef enum {
     NODE_BLOCK,
     NODE_VAR_DECL,
     NODE_TYPE,
-    NODE_ASSIGN,
     NODE_RETURN,
     NODE_IF,
     NODE_WHILE,
@@ -73,6 +72,13 @@ typedef struct ast_node {
             int StatementCount;
         } Block;
 
+        // NODE_STRUCT
+        struct {
+            string Name;
+            struct ast_node **Fields; // array of NODE_VAR_DECL
+            int FieldCount;
+        } Struct;
+
         // NODE_TYPE:    Example: [10]**int a => { Type = TYPE_ARR, PointingTo = { Type = TYPE_PTR,
         //               PointingTo = { TYPE_PTR, PointingTo = { Type = TYPE_S16, PointingTo = null
         //               }}}}
@@ -89,6 +95,8 @@ typedef struct ast_node {
             string Name;
             struct ast_node *Type;  // points to NODE_TYPE
             struct ast_node *Init;  // nullable
+            struct ast_node **ChildDecls; // int a, b, c; => b and c are NODE_VAR_DECL's stored here in a.
+            int ChildDeclsCount;
         } VarDecl;
 
         // NODE_BINARY_OP
@@ -125,12 +133,6 @@ typedef struct ast_node {
             struct ast_node **Args;
             int ArgCount;
         } Call;
-
-        // NODE_ASSIGN
-        struct {
-            string Target;
-            struct ast_node *Value;
-        } Assign;
 
         // NODE_RETURN
         struct {
@@ -176,6 +178,7 @@ void print_at(parser *p);
 ast_node *parse_block(parser *p);
 ast_node *parse_function(parser *p);
 ast_node *parse_function_call(parser *p);
+ast_node *parse_var_decl(parser *p);
 bool is_function(parser *p);
 ast_node *parse_expression(parser *p);
 ast_node *parse_identifier(parser *p);

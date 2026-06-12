@@ -1,3 +1,8 @@
+struct Entity {
+    int x = 0;
+    int y;
+};
+
 int main(int argc, **char argv) {
     [10]*uint8 a = 2;
     *void ptr = 0;

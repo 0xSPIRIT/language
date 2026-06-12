@@ -12,6 +12,7 @@ typedef enum {
     PREC_UNARY,     // - ! (prefix) ++x
     PREC_POSTFIX,   // x++ x--
     PREC_CALL,      // f(...)
+    PREC_ACCESS,    // a.Field or a[x]
 } precedence;
 
 static precedence infix_precedence(parser *p) {
@@ -41,6 +42,9 @@ static precedence infix_precedence(parser *p) {
         // Postfix ++ is an infix-position operator with no right operand.
         case TOKEN_INC: return PREC_POSTFIX;
         case TOKEN_DEC: return PREC_POSTFIX;
+
+        case TOKEN_DOT:         return PREC_ACCESS;
+        case TOKEN_OPEN_SQUARE: return PREC_ACCESS;
 
         default: return PREC_NONE;
     }
@@ -142,6 +146,26 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec) {
             continue;
         }
 
+        // Array index
+        if (Op->Type == TOKEN_OPEN_SQUARE) {
+            ast_node *Index = parse_expression_prec(p, PREC_NONE);
+
+            if (!Index) {
+                parse_error(p, "Expected expression inside array indexing []");
+                return NULL;
+            }
+
+            consume(p, TOKEN_CLOSE_SQUARE);
+
+            ast_node *N = node(p, NODE_BINARY_OP);
+            N->BinaryOp.Operation = TOKEN_OPEN_SQUARE;
+            N->BinaryOp.Left = Left;
+            N->BinaryOp.Right = Index;
+            Left = N;
+
+            continue;
+        }
+
         // Plain assignment  x = expr  — right-associative, so recurse at prec-1.
         if (Op->Type == TOKEN_EQUALS) {
             ast_node *Right = parse_expression_prec(p, PREC_ASSIGN - 1);
@@ -149,12 +173,11 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec) {
                 parse_error(p, "Expected right-hand side after '='.");
                 return NULL;
             }
-            ast_node *N = node(p, NODE_ASSIGN);
-            // Reuse the target name from Left if it's a plain identifier;
-            // the caller's is_var_assign guard means Left should always be one.
-            N->Assign.Target = Left->Ident.Name;
-            N->Assign.Value  = Right;
-            Left             = N;
+            ast_node *N           = node(p, NODE_BINARY_OP);
+            N->BinaryOp.Operation = TOKEN_EQUALS;
+            N->BinaryOp.Left      = Left;
+            N->BinaryOp.Right     = Right;
+            Left                  = N;
             continue;
         }
 
@@ -175,10 +198,11 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec) {
             BinOp->BinaryOp.Right     = Right;
 
             // Wrap in an assignment.
-            ast_node *N      = node(p, NODE_ASSIGN);
-            N->Assign.Target = Left->Ident.Name;
-            N->Assign.Value  = BinOp;
-            Left             = N;
+            ast_node *N           = node(p, NODE_BINARY_OP);
+            N->BinaryOp.Operation = TOKEN_EQUALS;
+            N->BinaryOp.Left      = Left;
+            N->BinaryOp.Right     = BinOp;
+            Left                  = N;
             continue;
         }
 

@@ -1,1 +1,0 @@
-{ "directory": "/home/spirit/work/lang", "file": "src/main.c", "output": "/tmp/main-4ef103.o", "arguments": ["/usr/lib/llvm-18/bin/clang", "-xc", "src/main.c", "-o", "/tmp/main-4ef103.o", "-g", "-rdynamic", "-std=c2x", "-Wall", "-dumpdir", "bin/main-", "--target=x86_64-pc-linux-gnu"]},
