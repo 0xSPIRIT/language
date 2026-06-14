@@ -4,6 +4,8 @@
 #include "lexer.c"
 #include "parser.c"
 #include "elf.c"
+#include "gen_x86.c"
+
 #include "util/arena.c"
 #include "util/string.c"
 #include "util/util.c"
@@ -25,11 +27,13 @@ int main(int argc, char **argv) {
     if (Tokens.Tokens) {
         ast_node *Tree = parse(&Arena, Tokens);
         print_tree(Tree);
+
+        program_code Program = gen_x86(Tree);
+        generate_elf_x86(Program);
     } else {
         printf("Error!\n");
     }
 
-    generate_elf();
 
     free_arena(&Arena);
     return 0;

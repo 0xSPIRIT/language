@@ -84,15 +84,12 @@ bool expect_tokens(parser *p, int count, ...) {
     return true;
 }
 
-bool expect_keyword(parser *p, keyword k) {
-    return (peek(p)->Type == TOKEN_KEYWORD && peek(p)->Keyword == k);
-}
+bool expect_keyword(parser *p, keyword k) { return (peek(p)->Type == TOKEN_KEYWORD && peek(p)->Keyword == k); }
 
 token *_consume(parser *p, token_type expected, const char *_file, int _line) {
     token *Tok = peek(p);
     if (Tok->Type != expected) {
-        parse_error(p, "%s(%d) Expected %s but got %s\n", _file, _line, token_name(expected),
-                    token_name(Tok->Type));
+        parse_error(p, "%s(%d) Expected %s but got %s\n", _file, _line, token_name(expected), token_name(Tok->Type));
         raise(SIGTRAP);
     }
     p->i++;
@@ -103,8 +100,7 @@ token *consume_keyword(parser *p, keyword Keyword) {
     token *Tok = peek(p);
 
     if (Tok->Type != TOKEN_KEYWORD || Tok->Keyword != Keyword) {
-        parse_error(p, "Expected keyword %s, got %s\n", get_keyword_str(Keyword),
-                    get_keyword_str(Tok->Keyword));
+        parse_error(p, "Expected keyword %s, got %s\n", get_keyword_str(Keyword), get_keyword_str(Tok->Keyword));
     }
     p->i++;
     return Tok;
@@ -259,6 +255,8 @@ type get_data_type(string s) {
         return TYPE_S16;
     else if (string_equals(s, CSTR("int32")))
         return TYPE_S32;
+    else if (string_equals(s, CSTR("int64")))
+        return TYPE_S64;
     else if (string_equals(s, CSTR("uint")))
         return TYPE_U16;
     else if (string_equals(s, CSTR("uint8")))
@@ -267,6 +265,8 @@ type get_data_type(string s) {
         return TYPE_U16;
     else if (string_equals(s, CSTR("uint32")))
         return TYPE_U32;
+    else if (string_equals(s, CSTR("uint64")))
+        return TYPE_U64;
     else if (string_equals(s, CSTR("float")))
         return TYPE_FLOAT;
     else if (string_equals(s, CSTR("void")))
@@ -280,9 +280,11 @@ string get_type_name(type t) {
         case TYPE_S8:     return CSTR("int8");
         case TYPE_S16:    return CSTR("int16");
         case TYPE_S32:    return CSTR("int32");
+        case TYPE_S64:    return CSTR("int64");
         case TYPE_U8:     return CSTR("uint8");
         case TYPE_U16:    return CSTR("uint16");
         case TYPE_U32:    return CSTR("uint32");
+        case TYPE_U64:    return CSTR("uint64");
         case TYPE_ARRAY:  return CSTR("array");
         case TYPE_PTR:    return CSTR("pointer");
         case TYPE_VOID:   return CSTR("void");
@@ -343,8 +345,7 @@ ast_node *_parse_type(parser *p, bool peeking) {
 
         return BaseNode ? BaseNode : EndNode;
     } else {
-        parse_error(p, "Expected an identifier for the type, but got %s\n",
-                    token_name(peek(p)->Type));
+        parse_error(p, "Expected an identifier for the type, but got %s\n", token_name(peek(p)->Type));
         return NULL;
     }
 }
@@ -356,9 +357,7 @@ token *advance_type(parser *p) {
     return peek(p);
 }
 
-bool is_type(parser *p) {
-    return expect(p, TOKEN_STAR) || expect(p, TOKEN_OPEN_SQUARE) || expect(p, TOKEN_IDENTIFIER);
-}
+bool is_type(parser *p) { return expect(p, TOKEN_STAR) || expect(p, TOKEN_OPEN_SQUARE) || expect(p, TOKEN_IDENTIFIER); }
 
 ast_node *parse_var_decl_singular(parser *p, ast_node *type) {
     token *VarName = consume(p, TOKEN_IDENTIFIER);
@@ -673,8 +672,7 @@ bool is_function(parser *p) {
 
     int Saved = p->i;
     advance_type(p);
-    bool Result =
-        peek_next(p, 0)->Type == TOKEN_IDENTIFIER && peek_next(p, 1)->Type == TOKEN_OPEN_PAREN;
+    bool Result = peek_next(p, 0)->Type == TOKEN_IDENTIFIER && peek_next(p, 1)->Type == TOKEN_OPEN_PAREN;
 
     p->i = Saved;
     return Result;
@@ -727,8 +725,8 @@ ast_node *parse(memory_arena *arena, token_list tokens) {
     constexpr int MAX_GLOBAL_DECLS = 1024;
 
     Root->Program.FunctionCount = get_top_level_function_count(&p);
-    Root->Program.Functions  = arena_push(arena, Root->Program.FunctionCount * sizeof(ast_node *));
-    Root->Program.GlobalVars = arena_push(arena, MAX_GLOBAL_DECLS * sizeof(ast_node *));
+    Root->Program.Functions     = arena_push(arena, Root->Program.FunctionCount * sizeof(ast_node *));
+    Root->Program.GlobalVars    = arena_push(arena, MAX_GLOBAL_DECLS * sizeof(ast_node *));
 
     int i = 0;
 
@@ -909,8 +907,7 @@ void print_node(ast_node *node) {
             printf(ANSI_DIM "{ Op: " ANSI_RESET "%s, " ANSI_DIM "Operand: " ANSI_RESET,
                    token_name(node->UnaryOp.Operation));
             print_node(node->UnaryOp.Operand);
-            printf(ANSI_DIM ", First: " ANSI_FG_MAGENTA "%s" ANSI_RESET,
-                   node->UnaryOp.First ? "true" : "false");
+            printf(ANSI_DIM ", First: " ANSI_FG_MAGENTA "%s" ANSI_RESET, node->UnaryOp.First ? "true" : "false");
             printf(ANSI_DIM " }" ANSI_RESET);
             break;
         case NODE_STRUCT:
