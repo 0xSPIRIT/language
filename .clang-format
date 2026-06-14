@@ -2,17 +2,23 @@
 BasedOnStyle: Google
 
 # Maximum number of characters allowed per line
-ColumnLimit: 100
+ColumnLimit: 120
 
 # Indentation settings
 IndentWidth: 4
 TabWidth: 4
 UseTab: Never
+ContinuationIndentWidth: 4
 
 # Alignment options
 AlignAfterOpenBracket: Align
 AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: false
+AlignArrayOfStructures: Left
+BinPackArguments: false
+BinPackParameters: false
+Cpp11BracedListStyle: true
+
 PointerAlignment: Right
 
 # Spaces inside elements

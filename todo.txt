@@ -1,10 +1,14 @@
-[x] Arrays
-  [x] Declarations
-  [x] Access
-[x] Structs
-  [x] Declaration
-  [x] Access
-[x] Comma separated declaration
-
+Lexer:
 [ ] token: Add file, row & column fields from parser
+
+Parser:
 [ ] ast_node: Add file, row & column which is gotten from the token fields at node() call
+[ ] Memory
+  [ ] Dereference
+  [ ] Address Of
+
+Codegen:
+[ ] Start basic codegen
+  [x] Decide whether to output assembly file & execute as from code, or...
+      Output x86 code directly and write elf file directly.
+  [ ] Write simple ELF binary.

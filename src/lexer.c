@@ -27,6 +27,7 @@ char *token_name(token_type type) {
         case TOKEN_COMMA:         return ",";
         case TOKEN_QUOTE:         return "\"";
         case TOKEN_CHAR_QUOTE:    return "'";
+        case TOKEN_AMP:           return "&";
 
         case TOKEN_EQUALS_EQUALS: return "==";
         case TOKEN_OR:            return "||";

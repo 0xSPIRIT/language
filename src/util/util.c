@@ -28,7 +28,7 @@ string read_entire_file(memory_arena *arena, const char *fp) {
 }
 
 bool output_data_to_file(string data, const char *filename) {
-    FILE *File = fopen(filename, "w");
+    FILE *File = fopen(filename, "wb");
 
     size_t Written = fwrite(data.Data, 1, data.Length, File);
 

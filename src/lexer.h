@@ -27,6 +27,7 @@ typedef enum {
     TOKEN_DIV_EQ,
     TOKEN_MOD_EQ,
 
+    TOKEN_AMP           = '&',
     TOKEN_DOT           = '.',
     TOKEN_PERCENT       = '%',
     TOKEN_BANG          = '!',

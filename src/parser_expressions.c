@@ -85,8 +85,8 @@ static ast_node *parse_prefix(parser *p) {
         return N;
     }
 
-    // Unary: -expr  !expr
-    if (Tok->Type == TOKEN_MINUS || Tok->Type == TOKEN_BANG) {
+    // Unary: -expr  !expr  *expr (dereference)
+    if (Tok->Type == TOKEN_MINUS || Tok->Type == TOKEN_BANG || Tok->Type == TOKEN_STAR || Tok->Type == TOKEN_AMP) {
         advance(p);
         ast_node *Operand = parse_expression_prec(p, PREC_UNARY);
         if (!Operand) {

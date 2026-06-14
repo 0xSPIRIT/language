@@ -5,7 +5,6 @@
 #include <string.h>
 
 #include "parser_expressions.c"
-
 #include "util/util.h"
 
 ast_node *node(parser *p, node_type type) {

@@ -3,6 +3,7 @@
 
 #include "lexer.c"
 #include "parser.c"
+#include "elf.c"
 #include "util/arena.c"
 #include "util/string.c"
 #include "util/util.c"
@@ -28,15 +29,7 @@ int main(int argc, char **argv) {
         printf("Error!\n");
     }
 
-    /*
-    string AssemblyCode = string_make(&Arena, GB(2));
-
-    string_append(&AssemblyCode, CSTR(TEST_ASM));
-
-    string_print(AssemblyCode);
-
-    output_data_to_file(AssemblyCode, "prog.s");
-    */
+    generate_elf();
 
     free_arena(&Arena);
     return 0;
