@@ -76,7 +76,7 @@ typedef struct ast_node {
         // NODE_STRUCT
         struct {
             string Name;
-            struct ast_node **Fields; // array of NODE_VAR_DECL
+            struct ast_node **Fields;  // array of NODE_VAR_DECL
             int FieldCount;
         } Struct;
 
@@ -94,9 +94,9 @@ typedef struct ast_node {
         // NODE_VAR_DECL
         struct {
             string Name;
-            struct ast_node *Type;  // points to NODE_TYPE
-            struct ast_node *Init;  // nullable
-            struct ast_node **ChildDecls; // int a, b, c; => b and c are NODE_VAR_DECL's stored here in a.
+            struct ast_node *Type;         // points to NODE_TYPE
+            struct ast_node *Init;         // nullable
+            struct ast_node **ChildDecls;  // int a, b, c; => b and c are NODE_VAR_DECL's stored here in a.
             int ChildDeclsCount;
         } VarDecl;
 
@@ -195,3 +195,4 @@ node_type next_statement_type(parser *p);
 ast_node *parse_statement(parser *p, node_type type);
 token *_consume(parser *p, token_type expected, const char *_file, int _line);
 void print_tree(ast_node *ast);
+void print_node_type(ast_node *node);

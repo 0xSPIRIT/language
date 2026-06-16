@@ -1,0 +1,21 @@
+x86 Codegen Notes
+=================
+
+1) You must use the REX prefix to do 64-bit instructions.
+     REX byte -> 0100 WRXB
+
+     High 4 bits are set to 4.
+
+       W - Upgrade operand size to 64-bit
+       R - Access registers R8-R15
+       X - Extends SIB.index field to 4 bits
+       B - Extends ModRM.r/m, SIB.base or opcode register field to 4 bits.
+
+2) 64-bit registers are supersets of 32-bit registers,
+   eg. EAX is the low 32-bits of RAX (64-bit)
+
+3) Parameter passing.
+     Parameters: RDI, RSI, RDX, RCX, R8, R9
+     Return:     RAX (integers), XMM0 (FP)
+
+4) The stack must be 16-byte aligned before a CALL.

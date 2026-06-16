@@ -3,8 +3,7 @@
 
 #include "lexer.c"
 #include "parser.c"
-#include "elf.c"
-#include "gen_x86.c"
+#include "gen.c"
 
 #include "util/arena.c"
 #include "util/string.c"
@@ -28,12 +27,26 @@ int main(int argc, char **argv) {
         ast_node *Tree = parse(&Arena, Tokens);
         print_tree(Tree);
 
-        program_code Program = gen_x86(Tree);
-        generate_elf_x86(Program);
+        program_code Program = gen_program_code(Tree);
+
+        FILE *f = fopen("output.s", "wb");
+
+        if (f) {
+            fwrite(Program.ProgramCode.Data, 1, Program.ProgramCode.Length, f);
+            fclose(f);
+        } else {
+            fprintf(stderr, "Error opening output file.\n");
+            return 1;
+        }
+
+        system("as -o output.o output.s");
+
+        system("ld -o output output.o");
+
+        free_program_code(&Program);
     } else {
         printf("Error!\n");
     }
-
 
     free_arena(&Arena);
     return 0;

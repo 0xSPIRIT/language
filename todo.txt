@@ -3,12 +3,13 @@ Lexer:
 
 Parser:
 [ ] ast_node: Add file, row & column which is gotten from the token fields at node() call
-[ ] Memory
-  [ ] Dereference
-  [ ] Address Of
+[x] Memory
+  [x] Dereference
+  [x] Address Of
 
 Codegen:
 [ ] Start basic codegen
   [x] Decide whether to output assembly file & execute as from code, or...
       Output x86 code directly and write elf file directly.
-  [ ] Write simple ELF binary.
+  [x] Write simple ELF binary.
+  [ ] Output assembly first.
