@@ -1,3 +1,6 @@
+[ ] Replace all the arrays that should be dynamic, with proper
+    dynamic arrays. The rest of the data should go into the arenas.
+
 Lexer:
 [ ] token: Add file, row & column fields from parser
 
