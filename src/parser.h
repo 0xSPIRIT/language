@@ -1,8 +1,11 @@
 #pragma once
 
 #include "lexer.h"
+#include "sym.h"
 
 #define MAX_STATEMENTS 2048
+
+#define PRINT_SYMBOLS_IN_TREE
 
 #define consume(p, token) _consume(p, token, __FILE__, __LINE__)
 
@@ -52,13 +55,13 @@ typedef struct ast_node {
         struct {
             struct ast_node **Functions;  // array of NODE_FUNC_DEF
             int FunctionCount;
-            struct ast_node **GlobalVars;  // array of NODE_VAR_DECL
-            int GlobalVarCount;
+            struct ast_node **GlobalDecls;  // array of NODE_VAR_DECL
+            int GlobalDeclCount;
         } Program;
 
         // NODE_FUNC_DEF
         struct {
-            string Name;
+            struct ast_node *Name;  // NODE_IDENT
             struct ast_node *ReturnType;
             struct ast_node **Params;  // array of NODE_VAR_DECL
             int ParamCount;
@@ -75,7 +78,7 @@ typedef struct ast_node {
 
         // NODE_STRUCT
         struct {
-            string Name;
+            struct ast_node *Name;     // NODE_IDENT
             struct ast_node **Fields;  // array of NODE_VAR_DECL
             int FieldCount;
         } Struct;
@@ -85,7 +88,7 @@ typedef struct ast_node {
         //               }}}}
         struct {
             type Type;
-            string Name;  // nullable
+            struct ast_node *Name;  // NODE_IDENT, nullable if builtin type
             int ArraySize;
 
             struct ast_node *PointingTo;  // An ast_node *DataType
@@ -93,7 +96,7 @@ typedef struct ast_node {
 
         // NODE_VAR_DECL
         struct {
-            string Name;
+            struct ast_node *Name;         // NODE_IDENT
             struct ast_node *Type;         // points to NODE_TYPE
             struct ast_node *Init;         // nullable
             struct ast_node **ChildDecls;  // int a, b, c; => b and c are NODE_VAR_DECL's stored here in a.
@@ -130,7 +133,7 @@ typedef struct ast_node {
 
         // NODE_CALL
         struct {
-            string FuncName;
+            struct ast_node *FuncName; // NODE_IDENT
             struct ast_node **Args;
             int ArgCount;
         } Call;
@@ -156,8 +159,10 @@ typedef struct ast_node {
             char Value;
         } CharLit;
 
+        // NODE_IDENT
         struct {
             string Name;
+            symbol *Sym;
         } Ident;
     };
 

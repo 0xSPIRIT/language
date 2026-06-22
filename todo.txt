@@ -7,9 +7,48 @@ Parser:
   [x] Dereference
   [x] Address Of
 
+Symbol Resolver:
+[x] Utilize NODE_IDENT instead of string Name
+[x] In NODE_IDENT, store ptr to symbol
+[ ] Symbol resolution phase: ensure the different ast_node identifiers
+    point to the same symbol
+  [ ] Replace DataType.Name with NODE_IDENT
+  [ ] Ensure VarDecl in sym.c resolution handles the Type section as well
+  [ ] Ensure struct fields have offsets generated.
+    [ ] For now, the structs have to be declared in order
+  [ ] Generate the stack offsets
+
 Codegen:
-[ ] Start basic codegen
-  [x] Decide whether to output assembly file & execute as from code, or...
-      Output x86 code directly and write elf file directly.
-  [x] Write simple ELF binary.
-  [ ] Output assembly first.
+[ ] gen_function()
+[ ] gen_statement()
+[ ] gen_expr()
+[ ] gen_return()
+[ ] gen_var_decl()
+[ ] gen_assign()  - related to gen_expr() since = is a binary operation
+[ ] gen_if()
+[ ] gen_while()
+[ ] gen_call()
+[ ] gen_identifier()
+[ ] gen_int_lit()
+[ ] gen_bin_expr()
+[ ] gen_unary_expr()
+
+[ ] emit_u8/16/32/64()
+[ ] emit_label()
+[ ] emit_jump()
+[ ] emit_conditional_jump(cond)
+
+[ ] emit_mov_imm64(dst, value)
+[ ] emit_mov_reg_reg(dst, src)
+[ ] emit_load_local(dst, offset)
+[ ] emit_store_local(offset, src)
+[ ] emit_add(dst, src)
+[ ] emit_sub(dst, src)
+[ ] emit_mul(dst, src)
+[ ] emit_div(src)
+[ ] emit_cmp(left, right)
+[ ] emit_call(function)
+[ ] emit_ret()
+
+[ ] emit_prologue()
+[ ] emit_epilogue()

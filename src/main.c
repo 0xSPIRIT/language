@@ -4,6 +4,7 @@
 #include "lexer.c"
 #include "parser.c"
 #include "gen.c"
+#include "sym.c"
 
 #include "util/arena.c"
 #include "util/string.c"
@@ -25,10 +26,14 @@ int main(int argc, char **argv) {
 
     if (Tokens.Tokens) {
         ast_node *Tree = parse(&Arena, Tokens);
+
+        resolve_symbols(Tree);
+
         print_tree(Tree);
 
-        program_code Program = gen_program_code(Tree);
+        program_code Program = gen_program_code(&Arena, Tree);
 
+        /*
         FILE *f = fopen("output.s", "wb");
 
         if (f) {
@@ -42,6 +47,7 @@ int main(int argc, char **argv) {
         system("as -o output.o output.s");
 
         system("ld -o output output.o");
+        */
 
         free_program_code(&Program);
     } else {

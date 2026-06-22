@@ -1,6 +1,7 @@
 #include "parser.h"
 
 #include <assert.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <string.h>
 
@@ -22,6 +23,12 @@ ast_node *node(parser *p, node_type type) {
     return Node;
 }
 
+ast_node *identifier(parser *p, string Name) {
+    ast_node *Node   = node(p, NODE_IDENT);
+    Node->Ident.Name = Name;
+    return Node;
+}
+
 bool has_next(parser *p) { return p->i < p->Tokens.Count; }
 
 void parse_error(parser *p, const char *format, ...) {
@@ -34,7 +41,7 @@ void parse_error(parser *p, const char *format, ...) {
 
     printf("\n");
 
-    print_at(p);
+    if (p) print_at(p);
 
     va_end(Args);
 }
@@ -147,7 +154,7 @@ ast_node *parse_literal(parser *p) {
 ast_node *parse_function_call(parser *p) {
     ast_node *Node = node(p, NODE_CALL);
 
-    Node->Call.FuncName = advance(p)->String;
+    Node->Call.FuncName = identifier(p, advance(p)->String);
 
     consume(p, TOKEN_OPEN_PAREN);
 
@@ -196,7 +203,7 @@ ast_node *parse_struct(parser *p) {
     consume_keyword(p, KEYWORD_STRUCT);
 
     ast_node *Node    = node(p, NODE_STRUCT);
-    Node->Struct.Name = advance(p)->String;
+    Node->Struct.Name = identifier(p, advance(p)->String);
 
     consume(p, TOKEN_OPEN_SCOPE);
 
@@ -215,7 +222,10 @@ ast_node *parse_struct(parser *p) {
     int i = 0;
 
     while (peek(p)->Type != TOKEN_CLOSE_SCOPE) {
-        Node->Struct.Fields[i++] = parse_var_decl(p);
+        ast_node *VarDecl = parse_var_decl(p);
+
+        Node->Struct.Fields[i++] = VarDecl;
+
         consume(p, TOKEN_END_STATEMENT);
     }
 
@@ -339,8 +349,8 @@ ast_node *_parse_type(parser *p, bool peeking) {
 
     if (peek(p)->Type == TOKEN_IDENTIFIER) {
         ast_node *EndNode      = node(p, NODE_TYPE);
-        EndNode->DataType.Name = advance(p)->String;
-        EndNode->DataType.Type = get_data_type(EndNode->DataType.Name);
+        EndNode->DataType.Name = identifier(p, advance(p)->String);
+        EndNode->DataType.Type = get_data_type(EndNode->DataType.Name->Ident.Name);
         if (Prev) Prev->DataType.PointingTo = EndNode;
 
         return BaseNode ? BaseNode : EndNode;
@@ -371,7 +381,7 @@ ast_node *parse_var_decl_singular(parser *p, ast_node *type) {
 
     ast_node *Node     = node(p, NODE_VAR_DECL);
     Node->VarDecl.Type = type;
-    Node->VarDecl.Name = VarName->String;
+    Node->VarDecl.Name = identifier(p, VarName->String);
     Node->VarDecl.Init = RhsNode;
 
     return Node;
@@ -636,7 +646,7 @@ ast_node **get_params(parser *p, int *param_count) {
         ast_node *Param = node(p, NODE_VAR_DECL);
 
         Param->VarDecl.Init = 0;
-        Param->VarDecl.Name = ParamName->String;
+        Param->VarDecl.Name = identifier(p, ParamName->String);
         Param->VarDecl.Type = ParamType;
 
         Result[i++] = Param;
@@ -688,7 +698,7 @@ ast_node *parse_function(parser *p) {
     ast_node *Body    = parse_block(p);
     ast_node *Root    = node(p, NODE_FUNC_DEF);
 
-    Root->FuncDef.Name       = FuncName->String;
+    Root->FuncDef.Name       = identifier(p, FuncName->String);
     Root->FuncDef.ReturnType = ReturnType;
     Root->FuncDef.Params     = Params;
     Root->FuncDef.ParamCount = ParamCount;
@@ -726,7 +736,7 @@ ast_node *parse(memory_arena *arena, token_list tokens) {
 
     Root->Program.FunctionCount = get_top_level_function_count(&p);
     Root->Program.Functions     = arena_push(arena, Root->Program.FunctionCount * sizeof(ast_node *));
-    Root->Program.GlobalVars    = arena_push(arena, MAX_GLOBAL_DECLS * sizeof(ast_node *));
+    Root->Program.GlobalDecls   = arena_push(arena, MAX_GLOBAL_DECLS * sizeof(ast_node *));
 
     int i = 0;
 
@@ -741,7 +751,7 @@ ast_node *parse(memory_arena *arena, token_list tokens) {
             if (Statement->Type == NODE_FUNC_DEF)
                 Root->Program.Functions[i++] = Statement;
             else if (Statement->Type == NODE_VAR_DECL || Statement->Type == NODE_STRUCT)
-                Root->Program.GlobalVars[Root->Program.GlobalVarCount++] = Statement;
+                Root->Program.GlobalDecls[Root->Program.GlobalDeclCount++] = Statement;
         }
     }
 
@@ -779,7 +789,7 @@ void print_type(ast_node *Type) {
     switch (Type->DataType.Type) {
         case TYPE_ARRAY: printf("[%d]", Type->DataType.ArraySize); break;
         case TYPE_PTR:   printf("*"); break;
-        default:         string_print_b2(Type->DataType.Name);
+        default:         print_node(Type->DataType.Name); break;
     }
 
     if (Type->DataType.PointingTo) print_type(Type->DataType.PointingTo);
@@ -788,7 +798,7 @@ void print_type(ast_node *Type) {
 void print_function_node(ast_node *node) {
     if (node->Type != NODE_FUNC_DEF) return;
 
-    string_print_b3(node->FuncDef.Name);
+    string_print_b3(node->FuncDef.Name->Ident.Name);
 
     printf(ANSI_DIM);
     printf(" returns: ");
@@ -805,12 +815,19 @@ void print_function_node(ast_node *node) {
         print_type(Type);
 
         printf(" ");
-        string_print_b(node->FuncDef.Params[i]->VarDecl.Name);
+        string_print_b(node->FuncDef.Params[i]->VarDecl.Name->Ident.Name);
 
         if (i < node->FuncDef.ParamCount - 1) {
             printf(", ");
         }
     }
+}
+
+void print_symbol_ptr(ast_node *node) {
+#ifdef PRINT_SYMBOLS_IN_TREE
+    printf(ANSI_FG_BRIGHT_MAGENTA " (Symbol ");
+    printf(ANSI_RESET "%p" ANSI_FG_BRIGHT_MAGENTA ")" ANSI_RESET, get_node_identifier(node)->Ident.Sym);
+#endif
 }
 
 void print_node(ast_node *node) {
@@ -821,6 +838,10 @@ void print_node(ast_node *node) {
         case NODE_PROGRAM:  break;
         case NODE_FUNC_DEF: print_function_node(node); break;
         case NODE_BLOCK:    break;
+        case NODE_IDENT:
+            string_print_b(node->Ident.Name);
+            print_symbol_ptr(node);
+            break;
         case NODE_IF:
             printf(ANSI_DIM "Condition: " ANSI_RESET);
             print_node(node->If.Condition);
@@ -851,7 +872,7 @@ void print_node(ast_node *node) {
         case NODE_VAR_DECL:
             print_type(node->VarDecl.Type);
             printf(" ");
-            string_print_b(node->VarDecl.Name);
+            print_node(node->VarDecl.Name);
 
             if (node->VarDecl.Init) {
                 printf(ANSI_DIM " = " ANSI_RESET);
@@ -882,9 +903,8 @@ void print_node(ast_node *node) {
             string_print_b4((string){&node->CharLit.Value, 1});
             printf("'");
             return;
-        case NODE_IDENT: string_print_b(node->Ident.Name); return;
         case NODE_CALL:
-            string_print_b3(node->Call.FuncName);
+            print_node(node->Call.FuncName);
 
             printf(ANSI_DIM " params: " ANSI_RESET);
 
@@ -912,7 +932,9 @@ void print_node(ast_node *node) {
             break;
         case NODE_STRUCT:
             printf(ANSI_FG_BRIGHT_YELLOW "struct " ANSI_RESET);
-            string_print_b(node->Struct.Name);
+            print_node(node->Struct.Name);
+            print_symbol_ptr(node);
+
             printf(ANSI_DIM " { " ANSI_RESET);
 
             for (int i = 0; i < node->Struct.FieldCount; i++) {
@@ -970,7 +992,7 @@ void _print_tree(ast_node *ast, const char *message, int depth, int *last_child_
     switch (ast->Type) {
         case NODE_PROGRAM: {
             assert(depth == 0);
-            int total = ast->Program.FunctionCount + ast->Program.GlobalVarCount;
+            int total = ast->Program.FunctionCount + ast->Program.GlobalDeclCount;
             int idx   = 0;
 
             for (int i = 0; i < ast->Program.FunctionCount; i++, idx++) {
@@ -978,9 +1000,9 @@ void _print_tree(ast_node *ast, const char *message, int depth, int *last_child_
                 _print_tree(ast->Program.Functions[i], 0, depth + 1, new_flags);
             }
 
-            for (int i = 0; i < ast->Program.GlobalVarCount; i++, idx++) {
+            for (int i = 0; i < ast->Program.GlobalDeclCount; i++, idx++) {
                 new_flags[depth] = (idx == total - 1);
-                _print_tree(ast->Program.GlobalVars[i], 0, depth + 1, new_flags);
+                _print_tree(ast->Program.GlobalDecls[i], 0, depth + 1, new_flags);
             }
             break;
         }

@@ -19,5 +19,9 @@ int main() {
 
     int *p = malloc(100);
 
+    if p print("p is not null");
+    if (p) print("p is not null");
+    if (p) { print("p is not null"); }
+
     return 0;
 }

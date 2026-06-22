@@ -5,7 +5,6 @@
 
 #include <stdbool.h>
 #include <execinfo.h>
-#include <signal.h>
 
 #define ArraySize(arr) (sizeof(arr) / sizeof((arr)[0]))
 
