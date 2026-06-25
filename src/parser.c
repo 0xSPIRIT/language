@@ -281,6 +281,8 @@ type get_data_type(string s) {
         return TYPE_FLOAT;
     else if (string_equals(s, CSTR("void")))
         return TYPE_VOID;
+    else if (string_equals(s, CSTR("char")))
+        return TYPE_U8;
     else
         return TYPE_STRUCT;
 }

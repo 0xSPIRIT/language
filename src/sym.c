@@ -6,18 +6,6 @@
 #include "parser.h"
 #include "util/arena.h"
 
-constexpr int MAX_DEPTH   = 512;
-constexpr int MAX_SYMBOLS = 16384;
-
-typedef struct {
-    symbol *Symbols;
-    size_t SymbolCount;
-} symbols_scope;
-
-typedef struct {
-    symbols_scope *Symbols;
-} symbol_resolver;
-
 int get_type_size(type t) {
     switch (t) {
         case TYPE_S8:     return 1;
@@ -68,6 +56,26 @@ symbol *push_symbol(symbols_scope *Scope, symbol Sym) {
     return &Scope->Symbols[Scope->SymbolCount++];
 }
 
+// Pushes symbol to struct
+symbol *push_field_symbol_to_struct(memory_arena *arena, symbol *structure, symbol Sym) {
+    symbol *SymLoc = arena_push(arena, sizeof(symbol));
+
+    assert(SymLoc);
+
+    *SymLoc = Sym;
+
+    structure->Structure.Fields[structure->Structure.FieldCount++] = SymLoc;
+
+    return SymLoc;
+}
+
+struct_data make_structure_data(memory_arena *arena, int max_fields) {
+    struct_data Result = {};
+
+    Result.Fields = arena_push(arena, max_fields * sizeof(symbol *));
+    return Result;
+}
+
 // Returns NULL when not exist
 symbol *search_for_symbol(string name, symbols_scope *Scopes, int depth) {
     for (int i = depth; i >= 0; i--) {
@@ -97,7 +105,172 @@ ast_node *get_node_identifier(ast_node *node) {
 
 void resolve(ast_node *node, symbol *Sym) { get_node_identifier(node)->Ident.Sym = Sym; }
 
-void _resolve_symbols(ast_node *node, symbols_scope *Scopes, int depth, symbol current_symbol) {
+// Traverses all pointingto's on a type and returns the leaf node.
+ast_node *get_leaf_type(ast_node *type) {
+    assert(type->Type == NODE_TYPE);
+
+    if (!type->DataType.PointingTo) return type;
+
+    return get_leaf_type(type->DataType.PointingTo);
+}
+
+symbol *resolve_struct_symbol(ast_node *StructType, symbols_scope *Scopes, int current_depth) {
+    string TypeName = StructType->DataType.Name->Ident.Name;
+    symbol *Sym     = search_for_symbol(TypeName, Scopes, current_depth);
+
+    if (Sym) {
+        if (Sym->Type == SYM_STRUCT) {
+            StructType->DataType.Name->Ident.Sym = Sym;
+            return Sym;
+        } else {
+            parse_error(0, "The struct type couldn't be resolved because there was another symbol with the same name.");
+        }
+    } else {
+        parse_error(0, "We tried to resolve a struct type in a field but it was not declared yet.");
+    }
+
+    assert(false);
+
+    return 0;
+}
+
+symbol *search_struct_for_field(symbol *structure, string Name) {
+    for (int i = 0; i < structure->Structure.FieldCount; i++) {
+        symbol *Field = structure->Structure.Fields[i];
+
+        if (string_equals(Field->Name, Name)) return Field;
+    }
+
+    return NULL;
+}
+
+symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena,
+                                             symbols_scope *Scopes,
+                                             int depth,
+                                             ast_node *var_decl) {
+    ast_node *Type   = var_decl->VarDecl.Type;
+    type DataType    = Type->DataType.Type;
+    string FieldName = var_decl->VarDecl.Name->Ident.Name;
+
+    symbol DeclSym = {
+        .Name = FieldName,
+        .Type = SYM_VAR,
+    };
+
+    // If the field type is another struct,
+    // we search for that struct symbol, and get its size.
+
+    if (DataType == TYPE_STRUCT) {
+        symbol *StructRef = resolve_struct_symbol(Type, Scopes, depth);
+
+        if (StructRef) {
+            DeclSym.Size += StructRef->Size;
+            DeclSym.StructType = StructRef;
+        }
+    } else {
+        int ArraySize = 1;
+
+        int TypeSize = get_type_size(DataType);
+
+        if (DataType == TYPE_ARRAY) {
+            ArraySize = Type->DataType.ArraySize;
+
+            ast_node *Next = Type->DataType.PointingTo;
+
+            if (Next->DataType.Type == TYPE_STRUCT) {
+                symbol *StructRef = resolve_struct_symbol(Next, Scopes, depth);
+
+                if (StructRef) {
+                    TypeSize = StructRef->Size;
+                }
+            } else {
+                TypeSize = get_type_size(Next->DataType.Type);
+            }
+        }
+
+        DeclSym.Size = ArraySize * TypeSize;
+
+        if (DeclSym.Size <= 0) {
+            parse_error(0, "A field type cannot be void or have a negative size.");
+        }
+    }
+
+    return DeclSym;
+}
+
+void resolve_var_decl(memory_arena *arena, symbols_scope *Scopes, int depth, ast_node *VarDecl) {
+    symbol Sym = make_var_decl_symbol_and_resolve_type(arena, Scopes, depth, VarDecl);
+
+    _resolve_symbols(arena, VarDecl->VarDecl.Name, Scopes, depth, Sym);
+
+    for (int i = 0; i < VarDecl->VarDecl.ChildDeclsCount; i++) {
+        resolve_var_decl(arena, Scopes, depth, VarDecl->VarDecl.ChildDecls[i]);
+    }
+}
+
+void resolve_parameters(memory_arena *arena, ast_node *func, symbols_scope *Scopes, int depth) {
+    for (int i = 0; i < func->FuncDef.ParamCount; i++) {
+        ast_node *Param = func->FuncDef.Params[i];
+        resolve_var_decl(arena, Scopes, depth, Param);
+    }
+}
+
+// Returns the struct that this particular expression resolves to.
+// It also resolves all the identifiers it sees.
+// eg. entity.enemy_reference, where enemy_reference is an Enemy,
+//     will return the symbol for the type of Enemy.
+symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes, int depth) {
+    if (node->Type == NODE_IDENT) {
+        symbol *NodeSym   = search_for_symbol(node->Ident.Name, Scopes, depth);
+        symbol *StructRef = NodeSym->StructType;
+
+        node->Ident.Sym = NodeSym;
+        return StructRef;
+    } else if (node->Type == NODE_BINARY_OP) {
+        if (node->BinaryOp.Operation != TOKEN_DOT) {
+            parse_error(0, "Trying to do a binary operation that resolves to a structure? What are you doing man?!");
+        } else {
+            symbol *LeftStruct = resolve_struct_symbol_from_expr(node->BinaryOp.Left, Scopes, depth);
+
+            if (node->BinaryOp.Right->Type != NODE_IDENT) {
+                parse_error(0, "Trying to access a struct with a token that isn't an identifier.");
+            } else {
+                string FieldName                = node->BinaryOp.Right->Ident.Name;
+                symbol *FieldSym                = search_struct_for_field(LeftStruct, FieldName);
+                node->BinaryOp.Right->Ident.Sym = FieldSym;
+
+                if (!FieldSym) {
+                    parse_error(0, "Couldn't find field in struct.");
+                } else {
+                    symbol *StructRef = FieldSym->StructType;
+
+                    return StructRef;
+                }
+            }
+        }
+    }
+
+    return NULL;
+}
+
+// Returns the size of the field
+// structure is the symbol where the resulting field symbols are placed into
+int resolve_struct_decl_field(
+    memory_arena *arena, symbols_scope *Scopes, int current_depth, symbol *structure, ast_node *var_decl) {
+    symbol FieldSym = make_var_decl_symbol_and_resolve_type(arena, Scopes, current_depth, var_decl);
+
+    FieldSym.Type        = SYM_FIELD;
+    FieldSym.FieldOffset = structure->Size;
+
+    symbol *CreatedSymbol = push_field_symbol_to_struct(arena, structure, FieldSym);
+
+    // Point the identifier to the created field symbol.
+    var_decl->VarDecl.Name->Ident.Sym = CreatedSymbol;
+
+    return FieldSym.Size;
+}
+
+void _resolve_symbols(memory_arena *arena, ast_node *node, symbols_scope *Scopes, int depth, symbol current_symbol) {
     if (!node) return;
 
     symbols_scope *CurrentScope = Scopes + depth;
@@ -113,56 +286,91 @@ void _resolve_symbols(ast_node *node, symbols_scope *Scopes, int depth, symbol c
             break;
         }
         case NODE_PROGRAM: {
-            for (int i = 0; i < node->Program.FunctionCount; i++)
-                _resolve_symbols(node->Program.Functions[i], Scopes, depth, (symbol){});
-
             for (int i = 0; i < node->Program.GlobalDeclCount; i++)
-                _resolve_symbols(node->Program.GlobalDecls[i], Scopes, depth, (symbol){});
+                _resolve_symbols(arena, node->Program.GlobalDecls[i], Scopes, depth, (symbol){});
+
+            for (int i = 0; i < node->Program.FunctionCount; i++)
+                _resolve_symbols(arena, node->Program.Functions[i], Scopes, depth, (symbol){});
+
+            break;
+        }
+        case NODE_TYPE: {
+            _resolve_symbols(arena, node->DataType.Name, Scopes, depth, current_symbol);
             break;
         }
         case NODE_VAR_DECL: {
-            symbol Sym = {.Type = SYM_VAR, .StackOffset = resolve_type_size(node)};
-
-            _resolve_symbols(node->VarDecl.Name, Scopes, depth, Sym);
-
-            for (int i = 0; i < node->VarDecl.ChildDeclsCount; i++) {
-                _resolve_symbols(node->VarDecl.ChildDecls[i], Scopes, depth, (symbol){});
+            resolve_var_decl(arena, Scopes, depth, node);
+            break;
+        }
+        case NODE_BLOCK: {
+            for (int i = 0; i < node->Block.StatementCount; i++) {
+                ast_node *Statement = node->Block.Statements[i];
+                _resolve_symbols(arena, Statement, Scopes, depth + 1, (symbol){});
             }
             break;
         }
         case NODE_FUNC_DEF: {
             symbol Sym = {.Type = SYM_FUNC};
 
-            _resolve_symbols(node->FuncDef.Name, Scopes, depth, Sym);
+            _resolve_symbols(arena, node->FuncDef.Name, Scopes, depth, Sym);
+            resolve_parameters(arena, node, Scopes, depth + 1);
+            _resolve_symbols(arena, node->FuncDef.Body, Scopes, depth, (symbol){});
             break;
         }
         case NODE_CALL: {
             symbol Sym = {.Type = SYM_FUNC};
 
-            _resolve_symbols(node->Call.FuncName, Scopes, depth, Sym);
+            _resolve_symbols(arena, node->Call.FuncName, Scopes, depth, Sym);
             break;
         }
         case NODE_BINARY_OP: {
-            // This is a little weird. We need to think about this a bit more.
+            // Problem: When we are resolving fields, they are not at the
+            //          current scope at all, but rather on the struct.
+            //          If we're in a binary operation the symbol would
+            //          already exist in some struct, along with the field
+            //          offset.
+            // Todo:    What we need to do is get the struct that the left
+            //          is referencing, and search that struct for the field.
+
+            // a = (entity.guy).thing + c
 
             symbol A = {.Type = SYM_VAR};
 
             symbol B = {.Type = (node->BinaryOp.Operation == TOKEN_DOT) ? SYM_FIELD : SYM_VAR};
 
             if (B.Type == SYM_FIELD) {
-                // You need to get the offset & size
+                resolve_struct_symbol_from_expr(node, Scopes, depth);
+            } else {
+                _resolve_symbols(arena, node->BinaryOp.Right, Scopes, depth, B);
+                _resolve_symbols(arena, node->BinaryOp.Left, Scopes, depth, A);
             }
 
-            _resolve_symbols(node->BinaryOp.Right, Scopes, depth, B);
-            _resolve_symbols(node->BinaryOp.Left, Scopes, depth, A);
             break;
         }
         case NODE_STRUCT: {
-            symbol Sym = {.Type = SYM_FIELD};
+            symbol StructSymbol = {
+                .Name = node->Struct.Name->Ident.Name,
+                .Type = SYM_STRUCT,
+            };
+
+            StructSymbol.Structure = make_structure_data(arena, MAX_FIELDS);
 
             for (int i = 0; i < node->Struct.FieldCount; i++) {
+                ast_node *FieldVarDecl = node->Struct.Fields[i];
 
+                assert(FieldVarDecl->Type == NODE_VAR_DECL);
+
+                StructSymbol.Size += resolve_struct_decl_field(arena, Scopes, depth, &StructSymbol, FieldVarDecl);
+
+                for (int i = 0; i < FieldVarDecl->VarDecl.ChildDeclsCount; i++) {
+                    StructSymbol.Size += resolve_struct_decl_field(
+                        arena, Scopes, depth, &StructSymbol, FieldVarDecl->VarDecl.ChildDecls[i]);
+                }
             }
+
+            printf("Got struct size: %d\n", StructSymbol.Size);
+
+            resolve(node, push_symbol(CurrentScope, StructSymbol));
             break;
         }
         default: {
@@ -189,5 +397,5 @@ void resolve_symbols(ast_node *ast) {
         Scopes[i] = make_symbols_scope(&arena);
     }
 
-    _resolve_symbols(ast, Scopes, 0, (symbol){});
+    _resolve_symbols(&arena, ast, Scopes, 0, (symbol){});
 }

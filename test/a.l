@@ -1,16 +1,13 @@
-int a = 5;
-*char b = "test";
-
 struct Test {
-    int x;
-    int y;
-    Test a;
+    int16 a;
+};
+
+struct Entity {
+    Test t;
 };
 
 int main() {
-    int p = 5;
+    Entity b;
 
-    if (a == p) {
-        print(a);
-    }
+    b.t.a = 0;
 }
