@@ -1,5 +1,6 @@
 #pragma once
 
+#include "type.h"
 #include "util/string.h"
 
 constexpr int MAX_DEPTH   = 512;
@@ -24,23 +25,31 @@ typedef struct {
     int FieldCount;
 } struct_data;
 
+typedef struct {
+    struct symbol **Params;
+    int ParamCount;
+    type ReturnType;
+} func_data;
+
 typedef struct symbol {
     string Name;
     symbol_type Type;
     struct symbol *StructType;  // nullable. non-null if symbol is SYM_VAR whose type is a SYM_STRUCT
     section Section;
     int Size;
+    int PointerDepth;
 
     // Storage information
     union {
         int StackOffset;
         int FieldOffset;
         struct_data Structure;
+        func_data Function;
     };
 } symbol;
 
 typedef struct {
-    symbol *Symbols;
+    symbol **Symbols;
     size_t SymbolCount;
 } symbols_scope;
 
@@ -52,4 +61,9 @@ struct ast_node;
 
 int resolve_type_size(struct ast_node *type);
 struct ast_node *get_node_identifier(struct ast_node *node);
-void _resolve_symbols(memory_arena *arena, struct ast_node *node, symbols_scope *Scopes, int depth, symbol current_symbol);
+void _resolve_symbols(memory_arena *arena,
+                      struct ast_node *node,
+                      symbols_scope *Scopes,
+                      int depth,
+                      symbol current_symbol,
+                      bool must_exist);

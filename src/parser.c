@@ -788,11 +788,16 @@ void print_node_type(ast_node *node) {
 }
 
 void print_type(ast_node *Type) {
-    switch (Type->DataType.Type) {
-        case TYPE_ARRAY: printf("[%d]", Type->DataType.ArraySize); break;
-        case TYPE_PTR:   printf("*"); break;
-        default:         print_node(Type->DataType.Name); break;
-    }
+    type t = Type->DataType.Type;
+
+    if (t == TYPE_ARRAY)
+        printf("[%d]", Type->DataType.ArraySize);
+    else if (t == TYPE_PTR)
+        printf("*");
+    else if (t == TYPE_STRUCT)
+        print_node(Type->DataType.Name);
+    else
+        string_print_b3(get_type_name(t));
 
     if (Type->DataType.PointingTo) print_type(Type->DataType.PointingTo);
 }
@@ -800,7 +805,7 @@ void print_type(ast_node *Type) {
 void print_function_node(ast_node *node) {
     if (node->Type != NODE_FUNC_DEF) return;
 
-    string_print_b3(node->FuncDef.Name->Ident.Name);
+    print_node(node->FuncDef.Name);
 
     printf(ANSI_DIM);
     printf(" returns: ");
@@ -817,7 +822,7 @@ void print_function_node(ast_node *node) {
         print_type(Type);
 
         printf(" ");
-        string_print_b(node->FuncDef.Params[i]->VarDecl.Name->Ident.Name);
+        print_node(node->FuncDef.Params[i]->VarDecl.Name);
 
         if (i < node->FuncDef.ParamCount - 1) {
             printf(", ");
@@ -935,7 +940,6 @@ void print_node(ast_node *node) {
         case NODE_STRUCT:
             printf(ANSI_FG_BRIGHT_YELLOW "struct " ANSI_RESET);
             print_node(node->Struct.Name);
-            print_symbol_ptr(node);
 
             printf(ANSI_DIM " { " ANSI_RESET);
 

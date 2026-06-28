@@ -58,34 +58,6 @@ void emit_function_epilogue(program_code *code) {
     emit_count(code, Instructions, ArraySize(Instructions));
 }
 
-int calculate_function_local_size(ast_node *Function) {
-    int Size = 0;
-
-    /*
-    ast_node *Params = Function->FuncDef.Params;
-    int ParamCount = Function->FuncDef.ParamCount;
-
-    for (int i = 0; i < ParamCount; i++) {
-        Size += Params[i].VarDecl.Size;
-    }
-
-    ast_node *Block = Function->FuncDef.Body;
-
-    int Count             = Block->Block.StatementCount;
-    ast_node **Statements = Block->Block.Statements;
-
-    for (int i = 0; i < Count; i++) {
-        ast_node *Node = Statements[i];
-
-        if (Node->Type == NODE_VAR_DECL) {
-            Size += Node->VarDecl.Size;
-        }
-    }
-    */
-
-    return Size;
-}
-
 void process_node(ast_node *node, program_code *code, int depth) {
     switch (node->Type) {
         case NODE_PROGRAM:
@@ -96,15 +68,13 @@ void process_node(ast_node *node, program_code *code, int depth) {
         case NODE_FUNC_DEF: {
             ast_node *Body = node->FuncDef.Body;
 
-            // int block_locals_size = calculate_local_function_size(Body);
+            int local_size = node->FuncDef.Name->Ident.Sym->Size;
 
             size_t Count          = Body->Block.StatementCount;
             ast_node **Statements = Body->Block.Statements;
 
             emit_next_label(code);
-            emit_function_prologue(code, 0);
-
-            //assert(code->Symbols[depth + 1].SymbolCount == 0);
+            emit_function_prologue(code, local_size);
 
             for (size_t i = 0; i < Count; i++) {
                 process_node(Statements[i], code, depth + 1);

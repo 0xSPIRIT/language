@@ -3,7 +3,6 @@
 #include <stdint.h>
 
 #include "parser.h"
-#include "sym.h"
 #include "util/arena.h"
 
 #define MAX_FUNCTIONS 1024
@@ -13,6 +12,16 @@ typedef enum {
     ASM_LABEL,
     ASM_MOV,
     ASM_LEA,
+    ASM_AND,
+    ASM_OR,
+    ASM_XOR,
+    ASM_NOT,
+    ASM_SHL,
+    ASM_SHR,
+    ASM_SAR,    // arithmetic right shift, important for signed types
+    ASM_CDQ,    // sign-extend rax into rdx:rax before idiv
+    ASM_MOVSX,  // sign-extending move, counterpart to your MOVZX
+    ASM_NOP,    // useful for debugging
     ASM_PUSH,
     ASM_POP,
     ASM_ADD,
@@ -90,6 +99,8 @@ typedef struct {
 
         struct {
             register_id Base;
+            register_id Index;
+            int Scale;
             int32_t Offset;
         } Mem;
 
@@ -105,12 +116,22 @@ typedef struct {
 } asm_instruction;
 
 typedef struct {
+    string Label;
+    uint8_t *Data;
+    size_t Size;
+    bool ReadOnly;
+} data_entry;
+
+typedef struct {
     memory_arena InstructionArena;
     memory_arena *GeneralArena;
 
     size_t InstructionCount;
 
     int Label;
+
+    data_entry *DataEntries;
+    size_t DataEntryCount;
 } program_code;
 
 program_code gen_program_code(memory_arena *arena, ast_node *ast);

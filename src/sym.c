@@ -51,9 +51,13 @@ int resolve_type_size(ast_node *type) {
 }
 
 // Returns address of symbol in scope array
-symbol *push_symbol(symbols_scope *Scope, symbol Sym) {
-    Scope->Symbols[Scope->SymbolCount] = Sym;
-    return &Scope->Symbols[Scope->SymbolCount++];
+symbol *push_symbol(memory_arena *arena, symbols_scope *Scope, symbol Sym) {
+    symbol *NewSym = arena_push(arena, sizeof(symbol));
+    *NewSym        = Sym;
+
+    Scope->Symbols[Scope->SymbolCount++] = NewSym;
+
+    return NewSym;
 }
 
 // Pushes symbol to struct
@@ -82,8 +86,8 @@ symbol *search_for_symbol(string name, symbols_scope *Scopes, int depth) {
         symbols_scope *Scope = Scopes + i;
 
         for (int j = 0; j < Scope->SymbolCount; j++) {
-            if (string_equals(Scope->Symbols[j].Name, name)) {
-                return &Scope->Symbols[j];
+            if (string_equals(Scope->Symbols[j]->Name, name)) {
+                return Scope->Symbols[j];
             }
         }
     }
@@ -157,6 +161,19 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena,
         .Type = SYM_VAR,
     };
 
+    // Calculate pointer depth
+    if (Type) {
+        ast_node *TypeNode = Type;
+        int Depth          = 0;
+
+        while (TypeNode->DataType.Type == TYPE_PTR || TypeNode->DataType.Type == TYPE_ARRAY) {
+            Depth++;
+            TypeNode = TypeNode->DataType.PointingTo;
+        }
+
+        DeclSym.PointerDepth = Depth;
+    }
+
     // If the field type is another struct,
     // we search for that struct symbol, and get its size.
 
@@ -201,18 +218,49 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena,
 void resolve_var_decl(memory_arena *arena, symbols_scope *Scopes, int depth, ast_node *VarDecl) {
     symbol Sym = make_var_decl_symbol_and_resolve_type(arena, Scopes, depth, VarDecl);
 
-    _resolve_symbols(arena, VarDecl->VarDecl.Name, Scopes, depth, Sym);
+    _resolve_symbols(arena, VarDecl->VarDecl.Name, Scopes, depth, Sym, false);
 
     for (int i = 0; i < VarDecl->VarDecl.ChildDeclsCount; i++) {
         resolve_var_decl(arena, Scopes, depth, VarDecl->VarDecl.ChildDecls[i]);
     }
 }
 
-void resolve_parameters(memory_arena *arena, ast_node *func, symbols_scope *Scopes, int depth) {
+// Returns the start of the parameter list
+symbol **resolve_parameters(memory_arena *arena, ast_node *func, symbols_scope *Scopes, int depth) {
+    symbol **Result = Scopes[depth].Symbols + Scopes[depth].SymbolCount;
+
     for (int i = 0; i < func->FuncDef.ParamCount; i++) {
         ast_node *Param = func->FuncDef.Params[i];
         resolve_var_decl(arena, Scopes, depth, Param);
     }
+
+    return Result;
+}
+
+// Returns size of all locals in the function.
+int resolve_stack_offsets(ast_node *block, int Offset) {
+    for (int i = 0; i < block->Block.StatementCount; i++) {
+        ast_node *Stmt = block->Block.Statements[i];
+
+        if (Stmt->Type == NODE_BLOCK) {
+            Offset = resolve_stack_offsets(Stmt, Offset);
+        } else if (Stmt->Type == NODE_VAR_DECL) {
+            ast_node *Identifier = Stmt->VarDecl.Name;
+            symbol *Sym          = Identifier->Ident.Sym;
+
+            Sym->StackOffset = Offset;
+            Offset += Sym->Size;
+
+            /*
+            printf("Name: %.*s Offset: %d\n",
+                   (int)Identifier->Ident.Name.Length,
+                   Identifier->Ident.Name.Data,
+                   Sym->StackOffset);
+                   */
+        }
+    }
+
+    return Offset;
 }
 
 // Returns the struct that this particular expression resolves to.
@@ -270,7 +318,8 @@ int resolve_struct_decl_field(
     return FieldSym.Size;
 }
 
-void _resolve_symbols(memory_arena *arena, ast_node *node, symbols_scope *Scopes, int depth, symbol current_symbol) {
+void _resolve_symbols(
+    memory_arena *arena, ast_node *node, symbols_scope *Scopes, int depth, symbol current_symbol, bool must_exist) {
     if (!node) return;
 
     symbols_scope *CurrentScope = Scopes + depth;
@@ -280,22 +329,28 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, symbols_scope *Scopes
             string Name      = node->Ident.Name;
             symbol *Existing = search_for_symbol(Name, Scopes, depth);
 
+            if (must_exist && !Existing) {
+                parse_error(0, "Symbol should exist!");
+                break;
+            }
+
             current_symbol.Name = Name;
 
-            resolve(node, Existing ? Existing : push_symbol(CurrentScope, current_symbol));
+            resolve(node, Existing ? Existing : push_symbol(arena, CurrentScope, current_symbol));
             break;
         }
         case NODE_PROGRAM: {
             for (int i = 0; i < node->Program.GlobalDeclCount; i++)
-                _resolve_symbols(arena, node->Program.GlobalDecls[i], Scopes, depth, (symbol){});
+                _resolve_symbols(arena, node->Program.GlobalDecls[i], Scopes, depth, (symbol){}, false);
 
             for (int i = 0; i < node->Program.FunctionCount; i++)
-                _resolve_symbols(arena, node->Program.Functions[i], Scopes, depth, (symbol){});
+                _resolve_symbols(arena, node->Program.Functions[i], Scopes, depth, (symbol){}, false);
 
             break;
         }
         case NODE_TYPE: {
-            _resolve_symbols(arena, node->DataType.Name, Scopes, depth, current_symbol);
+            if (node->DataType.Type == TYPE_STRUCT)
+                _resolve_symbols(arena, node->DataType.Name, Scopes, depth, current_symbol, false);
             break;
         }
         case NODE_VAR_DECL: {
@@ -305,22 +360,68 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, symbols_scope *Scopes
         case NODE_BLOCK: {
             for (int i = 0; i < node->Block.StatementCount; i++) {
                 ast_node *Statement = node->Block.Statements[i];
-                _resolve_symbols(arena, Statement, Scopes, depth + 1, (symbol){});
+                _resolve_symbols(arena, Statement, Scopes, depth + 1, (symbol){}, false);
             }
             break;
         }
         case NODE_FUNC_DEF: {
             symbol Sym = {.Type = SYM_FUNC};
 
-            _resolve_symbols(arena, node->FuncDef.Name, Scopes, depth, Sym);
-            resolve_parameters(arena, node, Scopes, depth + 1);
-            _resolve_symbols(arena, node->FuncDef.Body, Scopes, depth, (symbol){});
+            symbol **Params = resolve_parameters(arena, node, Scopes, depth + 1);
+
+            func_data FuncData = {};
+
+            FuncData.ParamCount = node->FuncDef.ParamCount;
+            FuncData.Params     = Params;
+            FuncData.ReturnType = node->FuncDef.ReturnType->DataType.Type;
+
+            Sym.Function = FuncData;
+
+            _resolve_symbols(arena, node->FuncDef.Name, Scopes, depth, Sym, false);
+            _resolve_symbols(arena, node->FuncDef.Body, Scopes, depth, (symbol){}, false);
+            _resolve_symbols(arena, node->FuncDef.ReturnType, Scopes, depth, (symbol){}, true);
+
+            // Calculate stack offsets & function's local_size (used for function prologue)
+            Sym.Size = resolve_stack_offsets(node->FuncDef.Body, 0);
             break;
         }
         case NODE_CALL: {
             symbol Sym = {.Type = SYM_FUNC};
 
-            _resolve_symbols(arena, node->Call.FuncName, Scopes, depth, Sym);
+            _resolve_symbols(arena, node->Call.FuncName, Scopes, depth, Sym, true);
+
+            for (int i = 0; i < node->Call.ArgCount; i++) {
+                ast_node *Arg = node->Call.Args[i];
+
+                _resolve_symbols(arena, Arg, Scopes, depth, Sym, true);
+            }
+            break;
+        }
+        case NODE_RETURN: {
+            _resolve_symbols(arena, node->Return.Value, Scopes, depth, (symbol){}, false);
+            break;
+        }
+        case NODE_IF: {
+            // You can declare something in an if condition that is scoped only to the body of the if.
+            _resolve_symbols(arena, node->If.Condition, Scopes, depth + 1, (symbol){}, false);
+            _resolve_symbols(arena, node->If.ThenBlock, Scopes, depth, (symbol){}, false);
+            _resolve_symbols(arena, node->If.ElseBlock, Scopes, depth, (symbol){}, false);
+            break;
+        }
+        case NODE_WHILE: {
+            _resolve_symbols(arena, node->While.Condition, Scopes, depth, (symbol){}, false);
+            _resolve_symbols(arena, node->While.Body, Scopes, depth, (symbol){}, false);
+            break;
+        }
+        case NODE_FOR: {
+            _resolve_symbols(arena, node->For.Init, Scopes, depth + 1, (symbol){}, false);
+            _resolve_symbols(arena, node->For.Condition, Scopes, depth + 1, (symbol){}, false);
+            _resolve_symbols(arena, node->For.Advance, Scopes, depth + 1, (symbol){}, false);
+            _resolve_symbols(arena, node->For.Body, Scopes, depth, (symbol){}, false);
+            break;
+        }
+        case NODE_UNARY_OP: {
+            _resolve_symbols(arena, node->UnaryOp.Operand, Scopes, depth, (symbol){}, false);
             break;
         }
         case NODE_BINARY_OP: {
@@ -341,8 +442,8 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, symbols_scope *Scopes
             if (B.Type == SYM_FIELD) {
                 resolve_struct_symbol_from_expr(node, Scopes, depth);
             } else {
-                _resolve_symbols(arena, node->BinaryOp.Right, Scopes, depth, B);
-                _resolve_symbols(arena, node->BinaryOp.Left, Scopes, depth, A);
+                _resolve_symbols(arena, node->BinaryOp.Right, Scopes, depth, B, true);
+                _resolve_symbols(arena, node->BinaryOp.Left, Scopes, depth, A, true);
             }
 
             break;
@@ -370,7 +471,7 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, symbols_scope *Scopes
 
             printf("Got struct size: %d\n", StructSymbol.Size);
 
-            resolve(node, push_symbol(CurrentScope, StructSymbol));
+            resolve(node, push_symbol(arena, CurrentScope, StructSymbol));
             break;
         }
         default: {
@@ -382,7 +483,7 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, symbols_scope *Scopes
 symbols_scope make_symbols_scope(memory_arena *arena) {
     symbols_scope Scope = {};
 
-    Scope.Symbols     = arena_push(arena, sizeof(ast_node) * MAX_SYMBOLS);
+    Scope.Symbols     = arena_push(arena, sizeof(ast_node *) * MAX_SYMBOLS);
     Scope.SymbolCount = 0;
 
     return Scope;
@@ -397,5 +498,5 @@ void resolve_symbols(ast_node *ast) {
         Scopes[i] = make_symbols_scope(&arena);
     }
 
-    _resolve_symbols(&arena, ast, Scopes, 0, (symbol){});
+    _resolve_symbols(&arena, ast, Scopes, 0, (symbol){}, false);
 }

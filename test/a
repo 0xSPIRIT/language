@@ -1,0 +1,21 @@
+struct Test {
+    int a;
+};
+
+Test print(***char s, int length) {
+    int b;
+    int c;
+    int e;
+
+    void new_function(*int a) {
+        print(a);
+    }
+
+    {
+        int xx;
+
+        {
+            int y;
+        }
+    }
+}
