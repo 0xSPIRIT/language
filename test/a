@@ -1,21 +1,10 @@
-struct Test {
-    int a;
-};
+int main() {
+    int a = 5;
+    a = 2;
+    int b = 'A';
+    b = 3;
 
-Test print(***char s, int length) {
-    int b;
-    int c;
-    int e;
+    a = b;
 
-    void new_function(*int a) {
-        print(a);
-    }
-
-    {
-        int xx;
-
-        {
-            int y;
-        }
-    }
+    return 0;
 }

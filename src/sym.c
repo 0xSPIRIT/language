@@ -248,8 +248,8 @@ int resolve_stack_offsets(ast_node *block, int Offset) {
             ast_node *Identifier = Stmt->VarDecl.Name;
             symbol *Sym          = Identifier->Ident.Sym;
 
-            Sym->StackOffset = Offset;
             Offset += Sym->Size;
+            Sym->StackOffset = Offset;
 
             /*
             printf("Name: %.*s Offset: %d\n",
@@ -365,8 +365,6 @@ void _resolve_symbols(
             break;
         }
         case NODE_FUNC_DEF: {
-            symbol Sym = {.Type = SYM_FUNC};
-
             symbol **Params = resolve_parameters(arena, node, Scopes, depth + 1);
 
             func_data FuncData = {};
@@ -375,14 +373,15 @@ void _resolve_symbols(
             FuncData.Params     = Params;
             FuncData.ReturnType = node->FuncDef.ReturnType->DataType.Type;
 
-            Sym.Function = FuncData;
-
-            _resolve_symbols(arena, node->FuncDef.Name, Scopes, depth, Sym, false);
+            _resolve_symbols(arena, node->FuncDef.Name, Scopes, depth, (symbol){.Type = SYM_FUNC}, false);
             _resolve_symbols(arena, node->FuncDef.Body, Scopes, depth, (symbol){}, false);
             _resolve_symbols(arena, node->FuncDef.ReturnType, Scopes, depth, (symbol){}, true);
 
             // Calculate stack offsets & function's local_size (used for function prologue)
-            Sym.Size = resolve_stack_offsets(node->FuncDef.Body, 0);
+            symbol *Sym = node->FuncDef.Name->Ident.Sym;
+
+            Sym->Size     = resolve_stack_offsets(node->FuncDef.Body, 0);
+            Sym->Function = FuncData;
             break;
         }
         case NODE_CALL: {

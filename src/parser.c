@@ -258,7 +258,7 @@ bool is_return(parser *p) { return expect(p, TOKEN_KEYWORD) && peek(p)->Keyword 
 
 type get_data_type(string s) {
     if (string_equals(s, CSTR("int")))
-        return TYPE_S16;
+        return TYPE_S32;
     else if (string_equals(s, CSTR("int8")))
         return TYPE_S8;
     else if (string_equals(s, CSTR("int16")))

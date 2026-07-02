@@ -63,6 +63,8 @@ typedef enum { SIZE_NONE = 0, SIZE_8 = 1, SIZE_16 = 2, SIZE_32 = 4, SIZE_64 = 8 
 typedef enum {
     REG_NONE = 0,
 
+    REG_EAX,
+
     REG_RAX,
     REG_RBX,
     REG_RCX,
@@ -136,3 +138,4 @@ typedef struct {
 
 program_code gen_program_code(memory_arena *arena, ast_node *ast);
 void free_program_code(program_code *program);
+void print_instruction(asm_instruction *in);

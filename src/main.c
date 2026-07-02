@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
 
         resolve_symbols(Tree);
 
-        print_tree(Tree);
+        //print_tree(Tree);
 
         program_code Program = gen_program_code(&Arena, Tree);
 

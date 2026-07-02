@@ -1,6 +1,7 @@
 #include "gen.h"
 
 #include <assert.h>
+#include <stdarg.h>
 #include <string.h>
 
 #include "parser.h"
@@ -9,8 +10,22 @@
 #define Imm(value) \
     (operand) { .Type = OPERAND_IMM, .Imm.Value = value }
 
+constexpr operand Eax = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_EAX};
+constexpr operand Rax = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RAX};
 constexpr operand Rbp = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RBP};
 constexpr operand Rsp = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RSP};
+
+void gen_error(const char *format, ...) {
+    va_list Args;
+    va_start(Args, format);
+
+    printf("[Codegen Error] ");
+
+    vprintf(format, Args);
+    printf("\n");
+
+    va_end(Args);
+}
 
 void emit_count(program_code *code, asm_instruction *instructions, int count) {
     asm_instruction *Ptr = arena_push(&code->InstructionArena, count * sizeof(asm_instruction));
@@ -39,10 +54,12 @@ void emit_function_label(program_code *code, string Name) {
 }
 
 void emit_function_prologue(program_code *code, size_t local_size) {
+    size_t AlignedSize = 16 * (local_size / 16 + (local_size % 16 > 0));
+
     asm_instruction Instructions[] = {
         {.Op = ASM_PUSH, .Dst = Rbp},
         {.Op = ASM_MOV, .Dst = Rbp, .Src = Rsp},
-        {.Op = ASM_SUB, .Dst = Rsp, .Src = Imm(local_size)},
+        {.Op = ASM_SUB, .Dst = Rsp, .Src = Imm(AlignedSize)},
     };
 
     emit_count(code, Instructions, ArraySize(Instructions));
@@ -56,6 +73,71 @@ void emit_function_epilogue(program_code *code) {
     };
 
     emit_count(code, Instructions, ArraySize(Instructions));
+}
+
+operand get_operand(ast_node *node) {
+    operand Result = {};
+
+    switch (node->Type) {
+        case NODE_IDENT: {
+            symbol *Sym = node->Ident.Sym;
+
+            Result.Type = OPERAND_MEM;
+            Result.Size = Sym->Size;
+
+            if (Sym->Section == SECTION_STACK) {
+                Result.Mem.Base   = REG_RBP;
+                Result.Mem.Offset = -Sym->StackOffset;
+            }
+            break;
+        }
+        case NODE_CHAR_LIT: {
+            Result.Type      = OPERAND_IMM;
+            Result.Size      = 1;
+            Result.Imm.Value = node->CharLit.Value;
+            break;
+        }
+        case NODE_INT_LIT: {
+            Result.Type      = OPERAND_IMM;
+            Result.Size      = 4; // TODO: Is this a good idea?
+            Result.Imm.Value = node->IntegerLit.Value;
+            break;
+        }
+        case NODE_STRING_LIT: {
+            Result.Type = OPERAND_IMM;
+            break;
+        }
+
+        case NODE_BINARY_OP: {
+            break;
+        }
+
+        default: {
+            break;
+        }
+    }
+
+    return Result;
+}
+
+operand temp_register_for_size(operand_size size) {
+    switch (size) {
+        case SIZE_32: return Eax;
+        case SIZE_64: return Rax;
+        default:      assert(false);
+    }
+
+    return (operand){};
+}
+
+void emit_mov(program_code *code, operand Dst, operand Src) {
+    if (Dst.Type == OPERAND_MEM && Src.Type == OPERAND_MEM) {
+        operand Tmp = temp_register_for_size(Dst.Size);
+        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Tmp, .Src = Src});
+        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Tmp});
+    } else {
+        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Src});
+    }
 }
 
 void process_node(ast_node *node, program_code *code, int depth) {
@@ -73,7 +155,7 @@ void process_node(ast_node *node, program_code *code, int depth) {
             size_t Count          = Body->Block.StatementCount;
             ast_node **Statements = Body->Block.Statements;
 
-            emit_next_label(code);
+            emit_function_label(code, node->FuncDef.Name->Ident.Name);
             emit_function_prologue(code, local_size);
 
             for (size_t i = 0; i < Count; i++) {
@@ -82,19 +164,70 @@ void process_node(ast_node *node, program_code *code, int depth) {
 
             emit_function_epilogue(code);
 
-            //code->Symbols[depth + 1].SymbolCount = 0;
+            // code->Symbols[depth + 1].SymbolCount = 0;
+            break;
+        }
+        case NODE_BINARY_OP: {
+            switch (node->BinaryOp.Operation) {
+                case TOKEN_EQUALS: {
+                    operand Src = get_operand(node->BinaryOp.Right);
+                    operand Dst = get_operand(node->BinaryOp.Left);
+
+                    emit_mov(code, Dst, Src);
+                    break;
+                }
+                default: {
+                    gen_error("Haven't implemented parsing for binary operation of type %c yet, sorry!",
+                              node->BinaryOp.Operation);
+                    break;
+                }
+            }
             break;
         }
         case NODE_FOR: {
+            /*
             process_node(node->For.Init, code, depth + 1);
             // TODO: while (node->For.Condition)
             process_node(node->For.Body, code, depth + 1);
             process_node(node->For.Advance, code, depth + 1);
+            */
+            break;
+        }
+        case NODE_RETURN: {
+            ast_node *Val   = node->Return.Value;
+            operand Operand = get_operand(Val);
 
-            //code->Symbols[depth + 1].SymbolCount = 0;
+            if (Operand.Type == OPERAND_IMM) {
+                emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Rax, .Src = Operand});
+            }
+
             break;
         }
         case NODE_VAR_DECL: {
+            ast_node *Init = node->VarDecl.Init;
+
+            if (!Init) break;
+
+            ast_node *Ident = node->VarDecl.Name;
+            symbol *Sym     = Ident->Ident.Sym;
+
+            int Offset = Sym->StackOffset;
+
+            operand Mem = {
+                .Type = OPERAND_MEM,
+                .Size = Sym->Size,
+                .Mem  = {
+                         .Base   = REG_RBP,
+                         .Index  = REG_NONE,
+                         .Scale  = 0,
+                         .Offset = -Offset  // variable is stored at [rbp - Offset]
+                }
+            };
+
+            operand Value = get_operand(Init);
+
+            emit_mov(code, Mem, Value);
+
             break;
         }
         case NODE_STRUCT: break;
@@ -106,6 +239,146 @@ void process_node(ast_node *node, program_code *code, int depth) {
     }
 }
 
+char *register_name(register_id Reg) {
+    switch (Reg) {
+        case REG_NONE: break;
+
+        case REG_EAX: return "eax";
+
+        case REG_RAX: return "rax";
+        case REG_RBX: return "rbx";
+        case REG_RCX: return "rcx";
+        case REG_RDX: return "rdx";
+
+        case REG_RSI: return "rsi";
+        case REG_RDI: return "rdi";
+
+        case REG_RBP: return "rbp";
+        case REG_RSP: return "rsp";
+
+        case REG_R8:  return "r8";
+        case REG_R9:  return "r9";
+        case REG_R10: return "r10";
+        case REG_R11: return "r11";
+        case REG_R12: return "r12";
+        case REG_R13: return "r13";
+        case REG_R14: return "r14";
+        case REG_R15: return "r15";
+    }
+
+    return "(null)";
+}
+
+char *size_directive(operand_size size) {
+    switch (size) {
+        case SIZE_NONE: return "(invalid size)";
+        case SIZE_8:    return "BYTE PTR";
+        case SIZE_16:   return "WORD PTR";
+        case SIZE_32:   return "DWORD PTR";
+        case SIZE_64:   return "QWORD PTR";
+    }
+
+    return "(invalid size)";
+}
+
+void print_mem(operand op) {
+    printf("%s [%s", size_directive(op.Size), register_name(op.Mem.Base));
+    if (op.Mem.Index) printf(" + %s*%d", register_name(op.Mem.Index), op.Mem.Scale);
+
+    int Off = op.Mem.Offset;
+
+    if (Off >= 0) {
+        printf(" + ");
+    } else {
+        printf(" - ");
+        Off = -Off;
+    }
+
+    printf("%d]", Off);
+}
+
+void print_operand(operand op) {
+    switch (op.Type) {
+        case OPERAND_NONE:  printf("none"); break;
+        case OPERAND_REG:   printf("%s", register_name(op.Reg.Register)); break;
+        case OPERAND_IMM:   printf("%lld", (long long)op.Imm.Value); break;
+        case OPERAND_MEM:   print_mem(op); break;
+        case OPERAND_LABEL: printf("%.*s:", (int)op.Label.Name.Length, op.Label.Name.Data); break;
+        default:            printf("operand(?)"); break;
+    }
+}
+
+char *instruction_name(asm_opcode Opcode) {
+    switch (Opcode) {
+        case ASM_LABEL:   return "label";
+        case ASM_MOV:     return "mov";
+        case ASM_LEA:     return "lea";
+        case ASM_AND:     return "and";
+        case ASM_OR:      return "or";
+        case ASM_XOR:     return "xor";
+        case ASM_NOT:     return "not";
+        case ASM_SHL:     return "shl";
+        case ASM_SHR:     return "shr";
+        case ASM_SAR:     return "sar";
+        case ASM_CDQ:     return "cdq";
+        case ASM_MOVSX:   return "movsx";
+        case ASM_NOP:     return "nop";
+        case ASM_PUSH:    return "push";
+        case ASM_POP:     return "pop";
+        case ASM_ADD:     return "add";
+        case ASM_SUB:     return "sub";
+        case ASM_IMUL:    return "imul";
+        case ASM_IDIV:    return "idiv";
+        case ASM_NEG:     return "neg";
+        case ASM_CMP:     return "cmp";
+        case ASM_TEST:    return "test";
+        case ASM_SETE:    return "sete";
+        case ASM_SETNE:   return "setne";
+        case ASM_SETL:    return "setl";
+        case ASM_SETLE:   return "setle";
+        case ASM_SETG:    return "setg";
+        case ASM_SETGE:   return "setge";
+        case ASM_MOVZX:   return "movzx";
+        case ASM_JMP:     return "jmp";
+        case ASM_JE:      return "je";
+        case ASM_JNE:     return "jne";
+        case ASM_JL:      return "jl";
+        case ASM_JLE:     return "jle";
+        case ASM_JG:      return "jg";
+        case ASM_JGE:     return "jge";
+        case ASM_CALL:    return "call";
+        case ASM_RET:     return "ret";
+        case ASM_SYSCALL: return "syscall";
+    }
+
+    return "[Invalid Instruction]";
+}
+
+void print_instruction(asm_instruction *in) {
+    switch (in->Op) {
+        case ASM_LABEL: {
+            string_print(in->Dst.Label.Name);
+            printf(":");
+            break;
+        }
+        default: {
+            printf("%s ", instruction_name(in->Op));
+
+            if (in->Op == ASM_RET) break;
+
+            print_operand(in->Dst);
+
+            if (in->Op == ASM_PUSH || in->Op == ASM_POP) break;
+
+            printf(", ");
+            print_operand(in->Src);
+            break;
+        }
+    }
+
+    putchar('\n');
+}
+
 program_code gen_program_code(memory_arena *arena, ast_node *ast) {
     program_code Code = {};
 
@@ -113,6 +386,20 @@ program_code gen_program_code(memory_arena *arena, ast_node *ast) {
     Code.GeneralArena     = arena;
 
     process_node(ast, &Code, 0);
+
+    asm_instruction *Instructions = (asm_instruction *)Code.InstructionArena.Data;
+
+    printf("\n--asm--\n");
+
+    for (int i = 0; i < Code.InstructionCount; i++) {
+        asm_instruction *Instr = Instructions + i;
+
+        if (Instr->Op != ASM_LABEL) printf("  ");
+
+        print_instruction(Instr);
+    }
+
+    printf("--end asm--\n");
 
     return Code;
 }
