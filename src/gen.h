@@ -138,4 +138,4 @@ typedef struct {
 
 program_code gen_program_code(memory_arena *arena, ast_node *ast);
 void free_program_code(program_code *program);
-void print_instruction(asm_instruction *in);
+void print_instruction(FILE *out, asm_instruction *in);

@@ -15,6 +15,7 @@ typedef struct {
 
 string string_make(memory_arena *a, size_t capacity);
 void string_print(string s);
+void string_print_to(FILE *out, string s);
 void string_print_b(string s); // used for identifiers
 void string_print_b2(string s); // generally used for types
 void string_print_b3(string s); // function names

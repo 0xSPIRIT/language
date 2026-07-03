@@ -16,6 +16,8 @@ string string_make(memory_arena *a, size_t capacity) {
 
 void string_print(string s) { printf("%.*s", (int)s.Length, s.Data); }
 
+void string_print_to(FILE *out, string s) { fprintf(out, "%.*s", (int)s.Length, s.Data); }
+
 void string_print_b(string s) {
     printf(ANSI_FG_BLUE);
     printf("%.*s", (int)s.Length, s.Data);

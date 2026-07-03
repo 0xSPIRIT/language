@@ -75,7 +75,7 @@ void emit_function_epilogue(program_code *code) {
     emit_count(code, Instructions, ArraySize(Instructions));
 }
 
-operand get_operand(ast_node *node) {
+operand gen_expression(ast_node *node) {
     operand Result = {};
 
     switch (node->Type) {
@@ -99,7 +99,7 @@ operand get_operand(ast_node *node) {
         }
         case NODE_INT_LIT: {
             Result.Type      = OPERAND_IMM;
-            Result.Size      = 4; // TODO: Is this a good idea?
+            Result.Size      = 4;  // TODO: Is this a good idea?
             Result.Imm.Value = node->IntegerLit.Value;
             break;
         }
@@ -120,7 +120,8 @@ operand get_operand(ast_node *node) {
     return Result;
 }
 
-operand temp_register_for_size(operand_size size) {
+// TODO: Use r11?
+operand scratch_register(operand_size size) {
     switch (size) {
         case SIZE_32: return Eax;
         case SIZE_64: return Rax;
@@ -132,7 +133,7 @@ operand temp_register_for_size(operand_size size) {
 
 void emit_mov(program_code *code, operand Dst, operand Src) {
     if (Dst.Type == OPERAND_MEM && Src.Type == OPERAND_MEM) {
-        operand Tmp = temp_register_for_size(Dst.Size);
+        operand Tmp = scratch_register(Dst.Size);
         emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Tmp, .Src = Src});
         emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Tmp});
     } else {
@@ -170,8 +171,8 @@ void process_node(ast_node *node, program_code *code, int depth) {
         case NODE_BINARY_OP: {
             switch (node->BinaryOp.Operation) {
                 case TOKEN_EQUALS: {
-                    operand Src = get_operand(node->BinaryOp.Right);
-                    operand Dst = get_operand(node->BinaryOp.Left);
+                    operand Src = gen_expression(node->BinaryOp.Right);
+                    operand Dst = gen_expression(node->BinaryOp.Left);
 
                     emit_mov(code, Dst, Src);
                     break;
@@ -195,12 +196,9 @@ void process_node(ast_node *node, program_code *code, int depth) {
         }
         case NODE_RETURN: {
             ast_node *Val   = node->Return.Value;
-            operand Operand = get_operand(Val);
+            operand Operand = gen_expression(Val);
 
-            if (Operand.Type == OPERAND_IMM) {
-                emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Rax, .Src = Operand});
-            }
-
+            emit_mov(code, Rax, Operand);
             break;
         }
         case NODE_VAR_DECL: {
@@ -213,18 +211,14 @@ void process_node(ast_node *node, program_code *code, int depth) {
 
             int Offset = Sym->StackOffset;
 
+            // Variable is stored at [rbp - Offset]
             operand Mem = {
                 .Type = OPERAND_MEM,
                 .Size = Sym->Size,
-                .Mem  = {
-                         .Base   = REG_RBP,
-                         .Index  = REG_NONE,
-                         .Scale  = 0,
-                         .Offset = -Offset  // variable is stored at [rbp - Offset]
-                }
+                .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Offset = -Offset}
             };
 
-            operand Value = get_operand(Init);
+            operand Value = gen_expression(Init);
 
             emit_mov(code, Mem, Value);
 
@@ -281,30 +275,30 @@ char *size_directive(operand_size size) {
     return "(invalid size)";
 }
 
-void print_mem(operand op) {
-    printf("%s [%s", size_directive(op.Size), register_name(op.Mem.Base));
-    if (op.Mem.Index) printf(" + %s*%d", register_name(op.Mem.Index), op.Mem.Scale);
+void print_mem(FILE *out, operand op) {
+    fprintf(out, "%s [%s", size_directive(op.Size), register_name(op.Mem.Base));
+    if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(op.Mem.Index), op.Mem.Scale);
 
     int Off = op.Mem.Offset;
 
     if (Off >= 0) {
-        printf(" + ");
+        fprintf(out, " + ");
     } else {
-        printf(" - ");
+        fprintf(out, " - ");
         Off = -Off;
     }
 
-    printf("%d]", Off);
+    fprintf(out, "%d]", Off);
 }
 
-void print_operand(operand op) {
+void print_operand(FILE *out, operand op) {
     switch (op.Type) {
-        case OPERAND_NONE:  printf("none"); break;
-        case OPERAND_REG:   printf("%s", register_name(op.Reg.Register)); break;
-        case OPERAND_IMM:   printf("%lld", (long long)op.Imm.Value); break;
-        case OPERAND_MEM:   print_mem(op); break;
-        case OPERAND_LABEL: printf("%.*s:", (int)op.Label.Name.Length, op.Label.Name.Data); break;
-        default:            printf("operand(?)"); break;
+        case OPERAND_NONE:  fprintf(out, "none"); break;
+        case OPERAND_REG:   fprintf(out, "%s", register_name(op.Reg.Register)); break;
+        case OPERAND_IMM:   fprintf(out, "%lld", (long long)op.Imm.Value); break;
+        case OPERAND_MEM:   print_mem(out, op); break;
+        case OPERAND_LABEL: fprintf(out, "%.*s:", (int)op.Label.Name.Length, op.Label.Name.Data); break;
+        default:            fprintf(out, "operand(?)"); break;
     }
 }
 
@@ -354,29 +348,29 @@ char *instruction_name(asm_opcode Opcode) {
     return "[Invalid Instruction]";
 }
 
-void print_instruction(asm_instruction *in) {
+void print_instruction(FILE *out, asm_instruction *in) {
     switch (in->Op) {
         case ASM_LABEL: {
-            string_print(in->Dst.Label.Name);
-            printf(":");
+            string_print_to(out, in->Dst.Label.Name);
+            fprintf(out, ":");
             break;
         }
         default: {
-            printf("%s ", instruction_name(in->Op));
+            fprintf(out, "%s ", instruction_name(in->Op));
 
             if (in->Op == ASM_RET) break;
 
-            print_operand(in->Dst);
+            print_operand(out, in->Dst);
 
             if (in->Op == ASM_PUSH || in->Op == ASM_POP) break;
 
-            printf(", ");
-            print_operand(in->Src);
+            fprintf(out, ", ");
+            print_operand(out, in->Src);
             break;
         }
     }
 
-    putchar('\n');
+    fputc('\n', out);
 }
 
 program_code gen_program_code(memory_arena *arena, ast_node *ast) {
@@ -389,14 +383,16 @@ program_code gen_program_code(memory_arena *arena, ast_node *ast) {
 
     asm_instruction *Instructions = (asm_instruction *)Code.InstructionArena.Data;
 
+    FILE *out = stdout;
+
     printf("\n--asm--\n");
 
     for (int i = 0; i < Code.InstructionCount; i++) {
         asm_instruction *Instr = Instructions + i;
 
-        if (Instr->Op != ASM_LABEL) printf("  ");
+        if (Instr->Op != ASM_LABEL) fprintf(out, "  ");
 
-        print_instruction(Instr);
+        print_instruction(out, Instr);
     }
 
     printf("--end asm--\n");
