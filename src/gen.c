@@ -10,6 +10,7 @@
 #define Imm(value) \
     (operand) { .Type = OPERAND_IMM, .Imm.Value = value }
 
+constexpr operand Al  = (operand){.Type = OPERAND_REG, .Size = SIZE_8, .Reg.Register = REG_AL};
 constexpr operand Eax = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_EAX};
 constexpr operand Rax = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RAX};
 constexpr operand Rbp = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RBP};
@@ -38,19 +39,27 @@ void emit_count(program_code *code, asm_instruction *instructions, int count) {
 
 void emit(program_code *code, asm_instruction instruction) { emit_count(code, &instruction, 1); }
 
-void emit_next_label(program_code *code) {
-    string Name = string_make(code->GeneralArena, 10);
+string next_label(program_code *code) {
+    string Name = string_make(code->GeneralArena, 32);
 
     Name.Data[0] = 'L';
     Name.Length++;
 
     Name.Length += sprintf(Name.Data + 1, "%d", code->Label++);
 
-    emit(code, (asm_instruction){.Op = ASM_LABEL, .Dst = (operand){.Label.Name = Name}});
+    return Name;
 }
 
-void emit_function_label(program_code *code, string Name) {
+string emit_label(program_code *code, string Name) {
     emit(code, (asm_instruction){.Op = ASM_LABEL, .Dst = (operand){.Label.Name = Name}});
+    return Name;
+}
+
+string emit_next_label(program_code *code) { return emit_label(code, next_label(code)); }
+
+string emit_function_label(program_code *code, string Name) {
+    emit(code, (asm_instruction){.Op = ASM_LABEL, .Dst = (operand){.Label.Name = Name}});
+    return Name;
 }
 
 void emit_function_prologue(program_code *code, size_t local_size) {
@@ -75,7 +84,41 @@ void emit_function_epilogue(program_code *code) {
     emit_count(code, Instructions, ArraySize(Instructions));
 }
 
-operand gen_expression(ast_node *node) {
+void emit_cmp(program_code *code, operand Left, operand Right) {
+    if (Left.Type == OPERAND_MEM && Right.Type == OPERAND_MEM) {
+        operand Tmp = scratch_register(Right.Size);
+        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Tmp, .Src = Left});
+        emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Tmp, .Src = Right});
+    } else {
+        emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Left, .Src = Right});
+    }
+}
+
+operand gen_binop(ast_node *node, program_code *code, int depth) {
+    token_type Op = node->BinaryOp.Operation;
+
+    switch (Op) {
+        case TOKEN_EQUALS_EQUALS:
+        case TOKEN_BANG_EQUALS:   {
+            operand Left  = gen_expression(node->BinaryOp.Left, code, depth);
+            operand Right = gen_expression(node->BinaryOp.Right, code, depth);
+
+            emit_cmp(code, Left, Right);
+
+            emit(code, (asm_instruction){.Op = Op == TOKEN_EQUALS_EQUALS ? ASM_SETNE : ASM_SETE, .Dst = Al});
+            emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Rax, .Src = Al});
+
+            return Rax;
+        }
+        default: {
+            gen_error("Didn't implement this binary operation %s\n", token_name(Op));
+            return (operand){};
+        }
+    }
+}
+
+// Emit instructions and generate a resulting operand
+operand gen_expression(ast_node *node, program_code *code, int depth) {
     operand Result = {};
 
     switch (node->Type) {
@@ -109,6 +152,7 @@ operand gen_expression(ast_node *node) {
         }
 
         case NODE_BINARY_OP: {
+            gen_binop(node, code, depth);
             break;
         }
 
@@ -141,11 +185,11 @@ void emit_mov(program_code *code, operand Dst, operand Src) {
     }
 }
 
-void process_node(ast_node *node, program_code *code, int depth) {
+void gen_statement(ast_node *node, program_code *code, int depth) {
     switch (node->Type) {
         case NODE_PROGRAM:
             for (int i = 0; i < node->Program.FunctionCount; i++) {
-                process_node(node->Program.Functions[i], code, depth);
+                gen_statement(node->Program.Functions[i], code, depth);
             }
             break;
         case NODE_FUNC_DEF: {
@@ -160,7 +204,7 @@ void process_node(ast_node *node, program_code *code, int depth) {
             emit_function_prologue(code, local_size);
 
             for (size_t i = 0; i < Count; i++) {
-                process_node(Statements[i], code, depth + 1);
+                gen_statement(Statements[i], code, depth + 1);
             }
 
             emit_function_epilogue(code);
@@ -171,8 +215,8 @@ void process_node(ast_node *node, program_code *code, int depth) {
         case NODE_BINARY_OP: {
             switch (node->BinaryOp.Operation) {
                 case TOKEN_EQUALS: {
-                    operand Src = gen_expression(node->BinaryOp.Right);
-                    operand Dst = gen_expression(node->BinaryOp.Left);
+                    operand Src = gen_expression(node->BinaryOp.Right, code, depth);
+                    operand Dst = gen_expression(node->BinaryOp.Left, code, depth);
 
                     emit_mov(code, Dst, Src);
                     break;
@@ -183,6 +227,18 @@ void process_node(ast_node *node, program_code *code, int depth) {
                     break;
                 }
             }
+            break;
+        }
+        case NODE_IF: {
+            operand Cond = gen_expression(node->If.Condition, code, depth + 1);
+            (void)Cond;
+
+            gen_statement(node->If.ThenBlock, code, depth);
+
+            string Label = emit_next_label(code);
+            (void)Label;
+
+            if (node->If.ElseBlock) gen_statement(node->If.ElseBlock, code, depth);
             break;
         }
         case NODE_FOR: {
@@ -196,7 +252,7 @@ void process_node(ast_node *node, program_code *code, int depth) {
         }
         case NODE_RETURN: {
             ast_node *Val   = node->Return.Value;
-            operand Operand = gen_expression(Val);
+            operand Operand = gen_expression(Val, code, depth);
 
             emit_mov(code, Rax, Operand);
             break;
@@ -218,7 +274,7 @@ void process_node(ast_node *node, program_code *code, int depth) {
                 .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Offset = -Offset}
             };
 
-            operand Value = gen_expression(Init);
+            operand Value = gen_expression(Init, code, depth);
 
             emit_mov(code, Mem, Value);
 
@@ -237,6 +293,7 @@ char *register_name(register_id Reg) {
     switch (Reg) {
         case REG_NONE: break;
 
+        case REG_AL:  return "al";
         case REG_EAX: return "eax";
 
         case REG_RAX: return "rax";
@@ -362,7 +419,7 @@ void print_instruction(FILE *out, asm_instruction *in) {
 
             print_operand(out, in->Dst);
 
-            if (in->Op == ASM_PUSH || in->Op == ASM_POP) break;
+            if (in->Op == ASM_PUSH || in->Op == ASM_POP || in->Op == ASM_SETNE || in->Op == ASM_SETE) break;
 
             fprintf(out, ", ");
             print_operand(out, in->Src);
@@ -379,7 +436,7 @@ program_code gen_program_code(memory_arena *arena, ast_node *ast) {
     Code.InstructionArena = make_arena();
     Code.GeneralArena     = arena;
 
-    process_node(ast, &Code, 0);
+    gen_statement(ast, &Code, 0);
 
     asm_instruction *Instructions = (asm_instruction *)Code.InstructionArena.Data;
 

@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
     string Filename;
 
     if (argc == 1)
-        Filename = CSTR("../test/a");
+        Filename = CSTR("../test/a.c");
     else
         Filename = (string){argv[1], strlen(argv[1])};
 
@@ -30,6 +30,7 @@ int main(int argc, char **argv) {
         resolve_symbols(Tree);
 
         //print_tree(Tree);
+        string_print(Code);
 
         program_code Program = gen_program_code(&Arena, Tree);
 
