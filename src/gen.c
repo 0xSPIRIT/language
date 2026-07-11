@@ -39,7 +39,7 @@ void emit_count(program_code *code, asm_instruction *instructions, int count) {
 
 void emit(program_code *code, asm_instruction instruction) { emit_count(code, &instruction, 1); }
 
-string next_label(program_code *code) {
+string new_label(program_code *code) {
     string Name = string_make(code->GeneralArena, 32);
 
     Name.Data[0] = 'L';
@@ -55,7 +55,7 @@ string emit_label(program_code *code, string Name) {
     return Name;
 }
 
-string emit_next_label(program_code *code) { return emit_label(code, next_label(code)); }
+string emit_next_label(program_code *code) { return emit_label(code, new_label(code)); }
 
 string emit_function_label(program_code *code, string Name) {
     emit(code, (asm_instruction){.Op = ASM_LABEL, .Dst = (operand){.Label.Name = Name}});
@@ -74,6 +74,13 @@ void emit_function_prologue(program_code *code, size_t local_size) {
     emit_count(code, Instructions, ArraySize(Instructions));
 }
 
+string function_end_label(program_code *code) {
+    string FunctionName = code->CurrentFunction;
+    string Name = string_make(code->GeneralArena, FunctionName.Length + 6);
+    Name.Length = sprintf(Name.Data, "Lend_%.*s", (int)FunctionName.Length, FunctionName.Data);
+    return Name;
+}
+
 void emit_function_epilogue(program_code *code) {
     asm_instruction Instructions[] = {
         {.Op = ASM_MOV, .Dst = Rsp, .Src = Rbp},
@@ -81,7 +88,14 @@ void emit_function_epilogue(program_code *code) {
         {.Op = ASM_RET},
     };
 
+    emit_label(code, function_end_label(code));
     emit_count(code, Instructions, ArraySize(Instructions));
+}
+
+operand LabelOperand(string Label) { return (operand){.Type = OPERAND_LABEL, .Label.Name = Label}; }
+
+void emit_jump(program_code *code, string Label) {
+    emit(code, (asm_instruction){.Op = ASM_JMP, .Dst = LabelOperand(Label)});
 }
 
 void emit_cmp(program_code *code, operand Left, operand Right) {
@@ -94,6 +108,15 @@ void emit_cmp(program_code *code, operand Left, operand Right) {
     }
 }
 
+void emit_test(program_code *code, operand A, operand B) {
+    emit(code, (asm_instruction){.Op = ASM_TEST, .Dst = A, .Src = B});
+}
+
+void emit_je(program_code *code, string Label) {
+    emit(code, (asm_instruction){.Op = ASM_JE, .Dst = LabelOperand(Label)});
+}
+
+// The result is stored in the register that the return value points to (Rax)
 operand gen_binop(ast_node *node, program_code *code, int depth) {
     token_type Op = node->BinaryOp.Operation;
 
@@ -105,7 +128,7 @@ operand gen_binop(ast_node *node, program_code *code, int depth) {
 
             emit_cmp(code, Left, Right);
 
-            emit(code, (asm_instruction){.Op = Op == TOKEN_EQUALS_EQUALS ? ASM_SETNE : ASM_SETE, .Dst = Al});
+            emit(code, (asm_instruction){.Op = Op == TOKEN_EQUALS_EQUALS ? ASM_SETE : ASM_SETNE, .Dst = Al});
             emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Rax, .Src = Al});
 
             return Rax;
@@ -152,7 +175,7 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
         }
 
         case NODE_BINARY_OP: {
-            gen_binop(node, code, depth);
+            return gen_binop(node, code, depth);
             break;
         }
 
@@ -193,23 +216,24 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             }
             break;
         case NODE_FUNC_DEF: {
-            ast_node *Body = node->FuncDef.Body;
+            ast_node *Name = node->FuncDef.Name;
 
-            int local_size = node->FuncDef.Name->Ident.Sym->Size;
+            code->CurrentFunction = Name->Ident.Name;
 
-            size_t Count          = Body->Block.StatementCount;
-            ast_node **Statements = Body->Block.Statements;
+            int local_size = Name->Ident.Sym->Size;
 
-            emit_function_label(code, node->FuncDef.Name->Ident.Name);
+            emit_function_label(code, Name->Ident.Name);
             emit_function_prologue(code, local_size);
 
-            for (size_t i = 0; i < Count; i++) {
-                gen_statement(Statements[i], code, depth + 1);
-            }
+            gen_statement(node->FuncDef.Body, code, depth + 1);
 
             emit_function_epilogue(code);
-
-            // code->Symbols[depth + 1].SymbolCount = 0;
+            break;
+        }
+        case NODE_BLOCK: {
+            for (int i = 0; i < node->Program.FunctionCount; i++) {
+                gen_statement(node->Program.Functions[i], code, depth);
+            }
             break;
         }
         case NODE_BINARY_OP: {
@@ -230,13 +254,18 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             break;
         }
         case NODE_IF: {
-            operand Cond = gen_expression(node->If.Condition, code, depth + 1);
-            (void)Cond;
+            operand Result = gen_expression(node->If.Condition, code, depth + 1);
+
+            string L_Else = new_label(code);
+
+            // ZF = 0 if Result = 0
+            emit_test(code, Result, Result);
+
+            emit_je(code, L_Else);
 
             gen_statement(node->If.ThenBlock, code, depth);
 
-            string Label = emit_next_label(code);
-            (void)Label;
+            emit_label(code, L_Else);
 
             if (node->If.ElseBlock) gen_statement(node->If.ElseBlock, code, depth);
             break;
@@ -254,7 +283,10 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             ast_node *Val   = node->Return.Value;
             operand Operand = gen_expression(Val, code, depth);
 
+            // TODO: What if we return a struct (or float)?
             emit_mov(code, Rax, Operand);
+
+            emit_jump(code, function_end_label(code));
             break;
         }
         case NODE_VAR_DECL: {
@@ -354,7 +386,7 @@ void print_operand(FILE *out, operand op) {
         case OPERAND_REG:   fprintf(out, "%s", register_name(op.Reg.Register)); break;
         case OPERAND_IMM:   fprintf(out, "%lld", (long long)op.Imm.Value); break;
         case OPERAND_MEM:   print_mem(out, op); break;
-        case OPERAND_LABEL: fprintf(out, "%.*s:", (int)op.Label.Name.Length, op.Label.Name.Data); break;
+        case OPERAND_LABEL: fprintf(out, "%.*s", (int)op.Label.Name.Length, op.Label.Name.Data); break;
         default:            fprintf(out, "operand(?)"); break;
     }
 }
@@ -419,7 +451,9 @@ void print_instruction(FILE *out, asm_instruction *in) {
 
             print_operand(out, in->Dst);
 
-            if (in->Op == ASM_PUSH || in->Op == ASM_POP || in->Op == ASM_SETNE || in->Op == ASM_SETE) break;
+            if (in->Op == ASM_JE || in->Op == ASM_JMP || in->Op == ASM_PUSH || in->Op == ASM_POP || in->Op == ASM_SETNE ||
+                in->Op == ASM_SETE)
+                break;
 
             fprintf(out, ", ");
             print_operand(out, in->Src);
@@ -430,7 +464,7 @@ void print_instruction(FILE *out, asm_instruction *in) {
     fputc('\n', out);
 }
 
-program_code gen_program_code(memory_arena *arena, ast_node *ast) {
+program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
     program_code Code = {};
 
     Code.InstructionArena = make_arena();
@@ -440,9 +474,7 @@ program_code gen_program_code(memory_arena *arena, ast_node *ast) {
 
     asm_instruction *Instructions = (asm_instruction *)Code.InstructionArena.Data;
 
-    FILE *out = stdout;
-
-    printf("\n--asm--\n");
+    fprintf(out, ".intel_syntax noprefix\n.global main\n.type main, @function\n\n");
 
     for (int i = 0; i < Code.InstructionCount; i++) {
         asm_instruction *Instr = Instructions + i;
@@ -451,8 +483,6 @@ program_code gen_program_code(memory_arena *arena, ast_node *ast) {
 
         print_instruction(out, Instr);
     }
-
-    printf("--end asm--\n");
 
     return Code;
 }
