@@ -186,3 +186,4 @@ ast_node *parse_statement(parser *p, node_type type);
 token *_consume(parser *p, token_type expected, const char *_file, int _line);
 void print_tree(ast_node *ast);
 void print_node_type(ast_node *node);
+void print_symbol_ptr(ast_node *node);

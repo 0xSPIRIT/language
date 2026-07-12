@@ -1,10 +1,8 @@
 int main() {
-    int a = 5;
+    int a = 6;
     int b = 5;
 
-    if (a != b) {
-        return 0;
-    } else {
-        return 1;
-    }
+    int8 c = a != b;
+
+    return c;
 }

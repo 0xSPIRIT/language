@@ -6,18 +6,14 @@ main:
   push rbp
   mov rbp, rsp
   sub rsp, 16
-  mov DWORD PTR [rbp - 4], 5
+  mov DWORD PTR [rbp - 4], 6
   mov DWORD PTR [rbp - 8], 5
   mov r11d, DWORD PTR [rbp - 4]
   cmp r11d, DWORD PTR [rbp - 8]
   setne al
-  movzx rax, al
-  test rax, rax
-  je L0
-  mov rax, 0
-  jmp Lend_main
-L0:
-  mov rax, 1
+  movzx eax, al
+  movzx BYTE PTR [rbp - 9], eax
+  movzx eax, BYTE PTR [rbp - 9]
   jmp Lend_main
 Lend_main:
   mov rsp, rbp

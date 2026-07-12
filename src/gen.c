@@ -4,14 +4,14 @@
 #include <stdarg.h>
 #include <string.h>
 
-#include "parser.h"
 #include "util/util.h"
 
 #define Imm(value) \
     (operand) { .Type = OPERAND_IMM, .Imm.Value = value }
 
 constexpr operand Al   = (operand){.Type = OPERAND_REG, .Size = SIZE_8, .Reg.Register = REG_AL};
-constexpr operand Eax  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_EAX};
+constexpr operand Ax   = (operand){.Type = OPERAND_REG, .Size = SIZE_16, .Reg.Register = REG_AX};
+constexpr operand Eax  = (operand){.Type = OPERAND_REG, .Size = SIZE_32, .Reg.Register = REG_EAX};
 constexpr operand Rax  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RAX};
 constexpr operand Rbp  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RBP};
 constexpr operand Rsp  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RSP};
@@ -118,6 +118,16 @@ void emit_je(program_code *code, string Label) {
     emit(code, (asm_instruction){.Op = ASM_JE, .Dst = LabelOperand(Label)});
 }
 
+operand rax_from_size(operand_size Size) {
+    switch (Size) {
+        case SIZE_8:  return Al;
+        case SIZE_16: return Ax;
+        case SIZE_32: return Eax;
+        case SIZE_64: return Rax;
+        default:      assert(false); return (operand){};
+    }
+}
+
 // The result is stored in the register that the return value points to (Rax)
 operand gen_binop(ast_node *node, program_code *code, int depth) {
     token_type Op = node->BinaryOp.Operation;
@@ -131,9 +141,9 @@ operand gen_binop(ast_node *node, program_code *code, int depth) {
             emit_cmp(code, Left, Right);
 
             emit(code, (asm_instruction){.Op = Op == TOKEN_EQUALS_EQUALS ? ASM_SETE : ASM_SETNE, .Dst = Al});
-            emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Rax, .Src = Al});
+            emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = rax_from_size(Left.Size), .Src = Al});
 
-            return Rax;
+            return rax_from_size(Left.Size);
         }
         case TOKEN_LESS: {
             emit_cmp(code, Left, Right);
@@ -203,12 +213,16 @@ operand scratch_register(operand_size size) {
 }
 
 void emit_mov(program_code *code, operand Dst, operand Src) {
+    // assert(Dst.Size >= Src.Size);
+
+    asm_opcode Op = Dst.Size == Src.Size ? ASM_MOV : ASM_MOVZX;
+
     if (Dst.Type == OPERAND_MEM && Src.Type == OPERAND_MEM) {
         operand Tmp = scratch_register(Dst.Size);
-        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Tmp, .Src = Src});
-        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Tmp});
+        emit(code, (asm_instruction){.Op = Op, .Dst = Tmp, .Src = Src});
+        emit(code, (asm_instruction){.Op = Op, .Dst = Dst, .Src = Tmp});
     } else {
-        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Src});
+        emit(code, (asm_instruction){.Op = Op, .Dst = Dst, .Src = Src});
     }
 }
 
@@ -222,7 +236,8 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
         case NODE_FUNC_DEF: {
             ast_node *Name = node->FuncDef.Name;
 
-            code->CurrentFunction = Name->Ident.Name;
+            code->CurrentFunction           = Name->Ident.Name;
+            code->CurrentFunctionReturnSize = get_type_size(node->FuncDef.ReturnType->DataType.Type);
 
             int local_size = Name->Ident.Sym->Size;
 
@@ -288,7 +303,7 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             operand Operand = gen_expression(Val, code, depth);
 
             // TODO: What if we return a struct (or float)?
-            emit_mov(code, Rax, Operand);
+            emit_mov(code, rax_from_size(code->CurrentFunctionReturnSize), Operand);
 
             emit_jump(code, function_end_label(code));
             break;
@@ -330,6 +345,7 @@ char *register_name(register_id Reg) {
         case REG_NONE: break;
 
         case REG_AL:  return "al";
+        case REG_AX:  return "ax";
         case REG_EAX: return "eax";
 
         case REG_RAX: return "rax";

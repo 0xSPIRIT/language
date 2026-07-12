@@ -67,3 +67,4 @@ void _resolve_symbols(memory_arena *arena,
                       int depth,
                       symbol current_symbol,
                       bool must_exist);
+int get_type_size(type t);

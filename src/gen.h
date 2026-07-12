@@ -64,6 +64,7 @@ typedef enum {
     REG_NONE = 0,
 
     REG_AL,
+    REG_AX,
     REG_EAX,
 
     REG_RAX,
@@ -131,6 +132,7 @@ typedef struct {
     memory_arena *GeneralArena;
 
     string CurrentFunction;
+    int CurrentFunctionReturnSize;
 
     size_t InstructionCount;
 

@@ -1,22 +1,10 @@
 [ ] Replace all the arrays that should be dynamic, with proper
     dynamic arrays. The rest of the data should go into the arenas.
 
-Lexer:
-[ ] token: Add file, row & column fields from parser
-
-Parser:
-[ ] ast_node: Add file, row & column which is gotten from the token fields at node() call
-[x] Memory
-  [x] Dereference
-  [x] Address Of
-
-Symbol Resolver:
-[x] Utilize NODE_IDENT instead of string Name
-[x] In NODE_IDENT, store ptr to symbol
-[ ] Symbol resolution phase: ensure the different ast_node identifiers
-    point to the same symbol
-  [ ] Replace DataType.Name with NODE_IDENT
-  [ ] Ensure VarDecl in sym.c resolution handles the Type section as well
-  [ ] Ensure struct fields have offsets generated.
-    [ ] For now, the structs have to be declared in order
-  [ ] Generate the stack offsets
+Code gen:
+  [ ] All binary operations
+  [ ] While loop
+  [ ] For loop
+  [ ] structs
+  [ ] pointers
+  [ ] returning structs (>8 bytes)

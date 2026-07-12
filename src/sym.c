@@ -219,6 +219,7 @@ void resolve_var_decl(memory_arena *arena, symbols_scope *Scopes, int depth, ast
     symbol Sym = make_var_decl_symbol_and_resolve_type(arena, Scopes, depth, VarDecl);
 
     _resolve_symbols(arena, VarDecl->VarDecl.Name, Scopes, depth, Sym, false);
+    _resolve_symbols(arena, VarDecl->VarDecl.Init, Scopes, depth, (symbol){}, false);
 
     for (int i = 0; i < VarDecl->VarDecl.ChildDeclsCount; i++) {
         resolve_var_decl(arena, Scopes, depth, VarDecl->VarDecl.ChildDecls[i]);
@@ -424,18 +425,7 @@ void _resolve_symbols(
             break;
         }
         case NODE_BINARY_OP: {
-            // Problem: When we are resolving fields, they are not at the
-            //          current scope at all, but rather on the struct.
-            //          If we're in a binary operation the symbol would
-            //          already exist in some struct, along with the field
-            //          offset.
-            // Todo:    What we need to do is get the struct that the left
-            //          is referencing, and search that struct for the field.
-
-            // a = (entity.guy).thing + c
-
             symbol A = {.Type = SYM_VAR};
-
             symbol B = {.Type = (node->BinaryOp.Operation == TOKEN_DOT) ? SYM_FIELD : SYM_VAR};
 
             if (B.Type == SYM_FIELD) {
