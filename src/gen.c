@@ -10,11 +10,13 @@
 #define Imm(value) \
     (operand) { .Type = OPERAND_IMM, .Imm.Value = value }
 
-constexpr operand Al  = (operand){.Type = OPERAND_REG, .Size = SIZE_8, .Reg.Register = REG_AL};
-constexpr operand Eax = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_EAX};
-constexpr operand Rax = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RAX};
-constexpr operand Rbp = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RBP};
-constexpr operand Rsp = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RSP};
+constexpr operand Al   = (operand){.Type = OPERAND_REG, .Size = SIZE_8, .Reg.Register = REG_AL};
+constexpr operand Eax  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_EAX};
+constexpr operand Rax  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RAX};
+constexpr operand Rbp  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RBP};
+constexpr operand Rsp  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RSP};
+constexpr operand R11  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_R11};
+constexpr operand R11d = (operand){.Type = OPERAND_REG, .Size = SIZE_32, .Reg.Register = REG_R11d};
 
 void gen_error(const char *format, ...) {
     va_list Args;
@@ -76,8 +78,8 @@ void emit_function_prologue(program_code *code, size_t local_size) {
 
 string function_end_label(program_code *code) {
     string FunctionName = code->CurrentFunction;
-    string Name = string_make(code->GeneralArena, FunctionName.Length + 6);
-    Name.Length = sprintf(Name.Data, "Lend_%.*s", (int)FunctionName.Length, FunctionName.Data);
+    string Name         = string_make(code->GeneralArena, FunctionName.Length + 6);
+    Name.Length         = sprintf(Name.Data, "Lend_%.*s", (int)FunctionName.Length, FunctionName.Data);
     return Name;
 }
 
@@ -120,18 +122,21 @@ void emit_je(program_code *code, string Label) {
 operand gen_binop(ast_node *node, program_code *code, int depth) {
     token_type Op = node->BinaryOp.Operation;
 
+    operand Left  = gen_expression(node->BinaryOp.Left, code, depth);
+    operand Right = gen_expression(node->BinaryOp.Right, code, depth);
+
     switch (Op) {
         case TOKEN_EQUALS_EQUALS:
         case TOKEN_BANG_EQUALS:   {
-            operand Left  = gen_expression(node->BinaryOp.Left, code, depth);
-            operand Right = gen_expression(node->BinaryOp.Right, code, depth);
-
             emit_cmp(code, Left, Right);
 
             emit(code, (asm_instruction){.Op = Op == TOKEN_EQUALS_EQUALS ? ASM_SETE : ASM_SETNE, .Dst = Al});
             emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Rax, .Src = Al});
 
             return Rax;
+        }
+        case TOKEN_LESS: {
+            emit_cmp(code, Left, Right);
         }
         default: {
             gen_error("Didn't implement this binary operation %s\n", token_name(Op));
@@ -187,11 +192,10 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
     return Result;
 }
 
-// TODO: Use r11?
 operand scratch_register(operand_size size) {
     switch (size) {
-        case SIZE_32: return Eax;
-        case SIZE_64: return Rax;
+        case SIZE_32: return R11d;
+        case SIZE_64: return R11;
         default:      assert(false);
     }
 
@@ -339,14 +343,15 @@ char *register_name(register_id Reg) {
         case REG_RBP: return "rbp";
         case REG_RSP: return "rsp";
 
-        case REG_R8:  return "r8";
-        case REG_R9:  return "r9";
-        case REG_R10: return "r10";
-        case REG_R11: return "r11";
-        case REG_R12: return "r12";
-        case REG_R13: return "r13";
-        case REG_R14: return "r14";
-        case REG_R15: return "r15";
+        case REG_R8:   return "r8";
+        case REG_R9:   return "r9";
+        case REG_R10:  return "r10";
+        case REG_R11:  return "r11";
+        case REG_R11d: return "r11d";
+        case REG_R12:  return "r12";
+        case REG_R13:  return "r13";
+        case REG_R14:  return "r14";
+        case REG_R15:  return "r15";
     }
 
     return "(null)";
@@ -451,8 +456,8 @@ void print_instruction(FILE *out, asm_instruction *in) {
 
             print_operand(out, in->Dst);
 
-            if (in->Op == ASM_JE || in->Op == ASM_JMP || in->Op == ASM_PUSH || in->Op == ASM_POP || in->Op == ASM_SETNE ||
-                in->Op == ASM_SETE)
+            if (in->Op == ASM_JE || in->Op == ASM_JMP || in->Op == ASM_PUSH || in->Op == ASM_POP ||
+                in->Op == ASM_SETNE || in->Op == ASM_SETE)
                 break;
 
             fprintf(out, ", ");

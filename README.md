@@ -4,6 +4,7 @@ A C-like compiler!
 
 ## Function Syntax
 
+```c
 return_type function_name(type p1, type p2) {
     return_type a;
 
@@ -17,7 +18,11 @@ return_type function_name(type p1, type p2) {
 int main() {
     // Program starts here
 
-    int *p = malloc(100);
+    // Pointer to int
+    *int p = malloc(100);
+
+    // Pointer to pointer to array 10 of pointers to char
+    **[10]*char p0 = 0;
 
     if p print("p is not null");
     if (p) print("p is not null");
@@ -25,3 +30,4 @@ int main() {
 
     return 0;
 }
+```

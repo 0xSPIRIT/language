@@ -8,8 +8,8 @@ main:
   sub rsp, 16
   mov DWORD PTR [rbp - 4], 5
   mov DWORD PTR [rbp - 8], 5
-  mov eax, DWORD PTR [rbp - 4]
-  cmp eax, DWORD PTR [rbp - 8]
+  mov r11d, DWORD PTR [rbp - 4]
+  cmp r11d, DWORD PTR [rbp - 8]
   setne al
   movzx rax, al
   test rax, rax

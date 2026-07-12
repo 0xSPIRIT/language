@@ -54,22 +54,6 @@ int main(int argc, char **argv) {
         printf("Compilation completed. Output: ./test\n");
 #endif
 
-        /*
-        FILE *f = fopen("output.s", "wb");
-
-        if (f) {
-            fwrite(Program.ProgramCode.Data, 1, Program.ProgramCode.Length, f);
-            fclose(f);
-        } else {
-            fprintf(stderr, "Error opening output file.\n");
-            return 1;
-        }
-
-        system("as -o output.o output.s");
-
-        system("ld -o output output.o");
-        */
-
         free_program_code(&Program);
     } else {
         printf("Error!\n");

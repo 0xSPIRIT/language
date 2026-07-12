@@ -81,6 +81,7 @@ typedef enum {
     REG_R9,
     REG_R10,
     REG_R11,
+    REG_R11d,
     REG_R12,
     REG_R13,
     REG_R14,
