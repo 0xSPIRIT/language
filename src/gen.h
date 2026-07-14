@@ -58,14 +58,10 @@ typedef enum {
     OPERAND_LABEL,
 } operand_type;
 
-typedef enum { SIZE_NONE = 0, SIZE_8 = 1, SIZE_16 = 2, SIZE_32 = 4, SIZE_64 = 8 } operand_size;
+typedef enum { SIZE_NONE = 0, SIZE_8, SIZE_16, SIZE_32, SIZE_64 } operand_size;
 
 typedef enum {
     REG_NONE = 0,
-
-    REG_AL,
-    REG_AX,
-    REG_EAX,
 
     REG_RAX,
     REG_RBX,
@@ -82,7 +78,6 @@ typedef enum {
     REG_R9,
     REG_R10,
     REG_R11,
-    REG_R11d,
     REG_R12,
     REG_R13,
     REG_R14,
@@ -132,7 +127,7 @@ typedef struct {
     memory_arena *GeneralArena;
 
     string CurrentFunction;
-    int CurrentFunctionReturnSize;
+    operand_size CurrentFunctionReturnSize;
 
     size_t InstructionCount;
 
@@ -147,3 +142,5 @@ void free_program_code(program_code *program);
 void print_instruction(FILE *out, asm_instruction *in);
 operand gen_expression(ast_node *node, program_code *code, int depth);
 operand scratch_register(operand_size size);
+void emit_mov(program_code *code, operand Dst, operand Src);
+operand gen_expression(ast_node *node, program_code *code, int depth);

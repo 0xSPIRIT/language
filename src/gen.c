@@ -9,14 +9,21 @@
 #define Imm(value) \
     (operand) { .Type = OPERAND_IMM, .Imm.Value = value }
 
-constexpr operand Al   = (operand){.Type = OPERAND_REG, .Size = SIZE_8, .Reg.Register = REG_AL};
-constexpr operand Ax   = (operand){.Type = OPERAND_REG, .Size = SIZE_16, .Reg.Register = REG_AX};
-constexpr operand Eax  = (operand){.Type = OPERAND_REG, .Size = SIZE_32, .Reg.Register = REG_EAX};
-constexpr operand Rax  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RAX};
-constexpr operand Rbp  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RBP};
-constexpr operand Rsp  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_RSP};
-constexpr operand R11  = (operand){.Type = OPERAND_REG, .Size = SIZE_64, .Reg.Register = REG_R11};
-constexpr operand R11d = (operand){.Type = OPERAND_REG, .Size = SIZE_32, .Reg.Register = REG_R11d};
+#define Reg(reg, size) \
+    (operand) { .Type = OPERAND_REG, .Size = size, .Reg.Register = reg }
+#define Rbp (Reg(REG_RBP, SIZE_64))
+#define Rsp (Reg(REG_RSP, SIZE_64))
+
+operand_size get_operand_size(int SizeBytes) {
+    switch (SizeBytes) {
+        case 1: return SIZE_8;
+        case 2: return SIZE_16;
+        case 4: return SIZE_32;
+        case 8: return SIZE_64;
+    }
+
+    return 0;
+}
 
 void gen_error(const char *format, ...) {
     va_list Args;
@@ -83,6 +90,17 @@ string function_end_label(program_code *code) {
     return Name;
 }
 
+void emit_program_epilogue(program_code *code) {
+    asm_instruction Instructions[] = {
+        {.Op = ASM_MOV, .Dst = Reg(REG_RDI, SIZE_64), .Src = Reg(REG_RAX, SIZE_64)},
+        {.Op = ASM_MOV, .Dst = Reg(REG_RAX, SIZE_64), .Src = Imm(60)},
+        {.Op = ASM_SYSCALL},
+    };
+
+    emit_label(code, function_end_label(code));
+    emit_count(code, Instructions, ArraySize(Instructions));
+}
+
 void emit_function_epilogue(program_code *code) {
     asm_instruction Instructions[] = {
         {.Op = ASM_MOV, .Dst = Rsp, .Src = Rbp},
@@ -101,9 +119,13 @@ void emit_jump(program_code *code, string Label) {
 }
 
 void emit_cmp(program_code *code, operand Left, operand Right) {
+    if (Left.Size < Right.Size) {
+        Right.Size = Left.Size;
+    }
+
     if (Left.Type == OPERAND_MEM && Right.Type == OPERAND_MEM) {
-        operand Tmp = scratch_register(Right.Size);
-        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Tmp, .Src = Left});
+        operand Tmp = scratch_register(Left.Size);
+        emit_mov(code, Tmp, Left);
         emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Tmp, .Src = Right});
     } else {
         emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Left, .Src = Right});
@@ -111,6 +133,12 @@ void emit_cmp(program_code *code, operand Left, operand Right) {
 }
 
 void emit_test(program_code *code, operand A, operand B) {
+    if (A.Type != OPERAND_REG) {
+        operand Tmp = scratch_register(A.Size);
+        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Tmp, .Src = A});
+        A = Tmp;
+        B = Tmp;
+    }
     emit(code, (asm_instruction){.Op = ASM_TEST, .Dst = A, .Src = B});
 }
 
@@ -118,14 +146,61 @@ void emit_je(program_code *code, string Label) {
     emit(code, (asm_instruction){.Op = ASM_JE, .Dst = LabelOperand(Label)});
 }
 
-operand rax_from_size(operand_size Size) {
-    switch (Size) {
-        case SIZE_8:  return Al;
-        case SIZE_16: return Ax;
-        case SIZE_32: return Eax;
-        case SIZE_64: return Rax;
-        default:      assert(false); return (operand){};
+operand gen_comparison(program_code *code, token_type Op, operand Left, operand Right) {
+    emit_cmp(code, Left, Right);
+
+    asm_opcode SetOpcode;
+
+    switch (Op) {
+        case TOKEN_LESS:        SetOpcode = ASM_SETL; break;
+        case TOKEN_MORE:        SetOpcode = ASM_SETG; break;
+        case TOKEN_LESS_EQUALS: SetOpcode = ASM_SETLE; break;
+        case TOKEN_MORE_EQUALS: SetOpcode = ASM_SETGE; break;
+        default:                assert(false); break;
     }
+
+    emit(code, (asm_instruction){.Op = SetOpcode, .Dst = Reg(REG_RAX, SIZE_8)});
+
+    emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Reg(REG_RAX, SIZE_32), .Src = Reg(REG_RAX, SIZE_8)});
+
+    return Reg(REG_RAX, SIZE_32);
+}
+
+operand gen_math(program_code *code, token_type Op, operand Left, operand Right) {
+    int Size = Max(Left.Size, Right.Size);
+
+    asm_opcode MathOp;
+
+    switch (Op) {
+        case TOKEN_PLUS:   MathOp = ASM_ADD; break;
+        case TOKEN_MINUS:  MathOp = ASM_SUB; break;
+        case TOKEN_STAR:   MathOp = ASM_IMUL; break;
+        case TOKEN_DIVIDE: MathOp = ASM_IDIV; break;
+        default:           assert(false); break;
+    }
+
+    if (MathOp == ASM_IDIV) {
+        emit_mov(code, Reg(REG_RAX, Size), Left);
+        emit(code, (asm_instruction){.Op = ASM_CDQ});
+
+        if (Right.Type == OPERAND_IMM) {
+            operand Tmp = scratch_register(Size);
+            emit_mov(code, Tmp, Right);
+            Right = Tmp;
+        }
+
+        emit(code, (asm_instruction){.Op = ASM_IDIV, .Dst = Right});
+    } else {
+        if (Right.Type == OPERAND_REG && Right.Reg.Register == REG_RAX) {
+            operand Tmp = scratch_register(Size);
+            emit_mov(code, Tmp, Right);
+            Right = Tmp;
+        }
+        emit_mov(code, Reg(REG_RAX, Size), Left);
+        emit(code, (asm_instruction){.Op = MathOp, .Dst = Reg(REG_RAX, Size), .Src = Right});
+    }
+
+    return Reg(REG_RAX, Size);
 }
 
 // The result is stored in the register that the return value points to (Rax)
@@ -140,19 +215,57 @@ operand gen_binop(ast_node *node, program_code *code, int depth) {
         case TOKEN_BANG_EQUALS:   {
             emit_cmp(code, Left, Right);
 
-            emit(code, (asm_instruction){.Op = Op == TOKEN_EQUALS_EQUALS ? ASM_SETE : ASM_SETNE, .Dst = Al});
-            emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = rax_from_size(Left.Size), .Src = Al});
+            asm_opcode Set = Op == TOKEN_EQUALS_EQUALS ? ASM_SETE : ASM_SETNE;
 
-            return rax_from_size(Left.Size);
+            emit(code, (asm_instruction){.Op = Set, .Dst = Reg(REG_RAX, SIZE_8)});
+
+            emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Reg(REG_RAX, SIZE_32), .Src = Reg(REG_RAX, SIZE_8)});
+
+            return Reg(REG_RAX, SIZE_32);
         }
-        case TOKEN_LESS: {
-            emit_cmp(code, Left, Right);
+        case TOKEN_LESS:
+        case TOKEN_MORE:
+        case TOKEN_LESS_EQUALS:
+        case TOKEN_MORE_EQUALS: {
+            return gen_comparison(code, Op, Left, Right);
         }
+        case TOKEN_PLUS:
+        case TOKEN_MINUS:
+        case TOKEN_STAR:
+        case TOKEN_DIVIDE: {
+            return gen_math(code, node->BinaryOp.Operation, Left, Right);
+        }
+
         default: {
             gen_error("Didn't implement this binary operation %s\n", token_name(Op));
             return (operand){};
         }
     }
+}
+
+operand gen_negate(program_code *code, ast_node *node, operand Operand) {
+    if (Operand.Type == OPERAND_IMM) {
+        assert(node->UnaryOp.Operand->Type == NODE_INT_LIT);
+        Operand.Imm.Value = -node->UnaryOp.Operand->IntegerLit.Value;
+    } else if (Operand.Type == OPERAND_REG || Operand.Type == OPERAND_MEM) {
+        emit(code, (asm_instruction){.Op = ASM_NEG, .Dst = Operand});
+    } else {
+        assert(false);
+    }
+
+    return Operand;
+}
+
+operand gen_unaryop(ast_node *node, program_code *code, int depth) {
+    token_type Operation = node->UnaryOp.Operation;
+    operand Operand      = gen_expression(node->UnaryOp.Operand, code, depth);
+
+    switch (Operation) {
+        case TOKEN_MINUS: return gen_negate(code, node, Operand);
+        default:          assert(false); break;
+    }
+
+    return Operand;
 }
 
 // Emit instructions and generate a resulting operand
@@ -164,7 +277,7 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
             symbol *Sym = node->Ident.Sym;
 
             Result.Type = OPERAND_MEM;
-            Result.Size = Sym->Size;
+            Result.Size = get_operand_size(Sym->Size);
 
             if (Sym->Section == SECTION_STACK) {
                 Result.Mem.Base   = REG_RBP;
@@ -194,6 +307,11 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
             break;
         }
 
+        case NODE_UNARY_OP: {
+            return gen_unaryop(node, code, depth);
+            break;
+        }
+
         default: {
             break;
         }
@@ -202,25 +320,27 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
     return Result;
 }
 
-operand scratch_register(operand_size size) {
-    switch (size) {
-        case SIZE_32: return R11d;
-        case SIZE_64: return R11;
-        default:      assert(false);
-    }
-
-    return (operand){};
-}
+operand scratch_register(operand_size size) { return Reg(REG_R11, size); }
 
 void emit_mov(program_code *code, operand Dst, operand Src) {
-    // assert(Dst.Size >= Src.Size);
+    if (Src.Reg.Register == Dst.Reg.Register && Src.Size == Dst.Size) return;
 
-    asm_opcode Op = Dst.Size == Src.Size ? ASM_MOV : ASM_MOVZX;
+    if (Src.Type == OPERAND_IMM) {
+        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Src});
+        return;
+    }
 
-    if (Dst.Type == OPERAND_MEM && Src.Type == OPERAND_MEM) {
+    if (Dst.Size < Src.Size) {
+        Src.Size = Dst.Size;
+    }
+
+    bool NeedsExtend = Dst.Size > Src.Size;
+    asm_opcode Op    = NeedsExtend ? ASM_MOVZX : ASM_MOV;
+
+    if (Dst.Type == OPERAND_MEM && (NeedsExtend || Src.Type == OPERAND_MEM)) {
         operand Tmp = scratch_register(Dst.Size);
         emit(code, (asm_instruction){.Op = Op, .Dst = Tmp, .Src = Src});
-        emit(code, (asm_instruction){.Op = Op, .Dst = Dst, .Src = Tmp});
+        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Tmp});
     } else {
         emit(code, (asm_instruction){.Op = Op, .Dst = Dst, .Src = Src});
     }
@@ -237,36 +357,51 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             ast_node *Name = node->FuncDef.Name;
 
             code->CurrentFunction           = Name->Ident.Name;
-            code->CurrentFunctionReturnSize = get_type_size(node->FuncDef.ReturnType->DataType.Type);
+            code->CurrentFunctionReturnSize = get_operand_size(get_type_size(node->FuncDef.ReturnType->DataType.Type));
 
             int local_size = Name->Ident.Sym->Size;
 
-            emit_function_label(code, Name->Ident.Name);
+            bool is_main = strncmp(Name->Ident.Name.Data, "main", 4) == 0;
+
+            if (is_main) {
+                emit_label(code, CSTR("_start"));
+            } else {
+                emit_function_label(code, Name->Ident.Name);
+            }
+
             emit_function_prologue(code, local_size);
 
             gen_statement(node->FuncDef.Body, code, depth + 1);
 
-            emit_function_epilogue(code);
+            if (is_main) {
+                emit_program_epilogue(code);
+            } else {
+                emit_function_epilogue(code);
+            }
+
             break;
         }
         case NODE_BLOCK: {
-            for (int i = 0; i < node->Program.FunctionCount; i++) {
-                gen_statement(node->Program.Functions[i], code, depth);
+            for (int i = 0; i < node->Block.StatementCount; i++) {
+                gen_statement(node->Block.Statements[i], code, depth);
             }
             break;
         }
         case NODE_BINARY_OP: {
+            ast_node *Left  = node->BinaryOp.Left;
+            ast_node *Right = node->BinaryOp.Right;
+
             switch (node->BinaryOp.Operation) {
                 case TOKEN_EQUALS: {
-                    operand Src = gen_expression(node->BinaryOp.Right, code, depth);
-                    operand Dst = gen_expression(node->BinaryOp.Left, code, depth);
+                    operand Src = gen_expression(Right, code, depth);
+                    operand Dst = gen_expression(Left, code, depth);
 
                     emit_mov(code, Dst, Src);
                     break;
                 }
                 default: {
-                    gen_error("Haven't implemented parsing for binary operation of type %c yet, sorry!",
-                              node->BinaryOp.Operation);
+                    gen_error("Haven't implemented parsing for binary operation of type %s yet, sorry!",
+                              token_name(node->BinaryOp.Operation));
                     break;
                 }
             }
@@ -277,16 +412,21 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
 
             string L_Else = new_label(code);
 
-            // ZF = 0 if Result = 0
             emit_test(code, Result, Result);
 
             emit_je(code, L_Else);
 
-            gen_statement(node->If.ThenBlock, code, depth);
+            gen_statement(node->If.ThenBlock, code, depth + 1);
 
-            emit_label(code, L_Else);
-
-            if (node->If.ElseBlock) gen_statement(node->If.ElseBlock, code, depth);
+            if (node->If.ElseBlock) {
+                string L_End = new_label(code);
+                emit_jump(code, L_End);
+                emit_label(code, L_Else);
+                gen_statement(node->If.ElseBlock, code, depth + 1);
+                emit_label(code, L_End);
+            } else {
+                emit_label(code, L_Else);
+            }
             break;
         }
         case NODE_FOR: {
@@ -303,7 +443,7 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             operand Operand = gen_expression(Val, code, depth);
 
             // TODO: What if we return a struct (or float)?
-            emit_mov(code, rax_from_size(code->CurrentFunctionReturnSize), Operand);
+            emit_mov(code, Reg(REG_RAX, code->CurrentFunctionReturnSize), Operand);
 
             emit_jump(code, function_end_label(code));
             break;
@@ -321,7 +461,7 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             // Variable is stored at [rbp - Offset]
             operand Mem = {
                 .Type = OPERAND_MEM,
-                .Size = Sym->Size,
+                .Size = get_operand_size(Sym->Size),
                 .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Offset = -Offset}
             };
 
@@ -340,15 +480,11 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
     }
 }
 
-char *register_name(register_id Reg) {
+char *register_name(register_id Reg, operand_size Size) {
     switch (Reg) {
         case REG_NONE: break;
 
-        case REG_AL:  return "al";
-        case REG_AX:  return "ax";
-        case REG_EAX: return "eax";
-
-        case REG_RAX: return "rax";
+        case REG_RAX: return (char *[]){"al", "ax", "eax", "rax"}[Size - 1];
         case REG_RBX: return "rbx";
         case REG_RCX: return "rcx";
         case REG_RDX: return "rdx";
@@ -359,15 +495,14 @@ char *register_name(register_id Reg) {
         case REG_RBP: return "rbp";
         case REG_RSP: return "rsp";
 
-        case REG_R8:   return "r8";
-        case REG_R9:   return "r9";
-        case REG_R10:  return "r10";
-        case REG_R11:  return "r11";
-        case REG_R11d: return "r11d";
-        case REG_R12:  return "r12";
-        case REG_R13:  return "r13";
-        case REG_R14:  return "r14";
-        case REG_R15:  return "r15";
+        case REG_R8:  return "r8";
+        case REG_R9:  return "r9";
+        case REG_R10: return "r10";
+        case REG_R11: return (char *[]){"r11b", "r11w", "r11d", "r11"}[Size - 1];
+        case REG_R12: return "r12";
+        case REG_R13: return "r13";
+        case REG_R14: return "r14";
+        case REG_R15: return "r15";
     }
 
     return "(null)";
@@ -386,8 +521,8 @@ char *size_directive(operand_size size) {
 }
 
 void print_mem(FILE *out, operand op) {
-    fprintf(out, "%s [%s", size_directive(op.Size), register_name(op.Mem.Base));
-    if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(op.Mem.Index), op.Mem.Scale);
+    fprintf(out, "%s [%s", size_directive(op.Size), register_name(op.Mem.Base, op.Size));
+    if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(op.Mem.Index, op.Size), op.Mem.Scale);
 
     int Off = op.Mem.Offset;
 
@@ -404,7 +539,7 @@ void print_mem(FILE *out, operand op) {
 void print_operand(FILE *out, operand op) {
     switch (op.Type) {
         case OPERAND_NONE:  fprintf(out, "none"); break;
-        case OPERAND_REG:   fprintf(out, "%s", register_name(op.Reg.Register)); break;
+        case OPERAND_REG:   fprintf(out, "%s", register_name(op.Reg.Register, op.Size)); break;
         case OPERAND_IMM:   fprintf(out, "%lld", (long long)op.Imm.Value); break;
         case OPERAND_MEM:   print_mem(out, op); break;
         case OPERAND_LABEL: fprintf(out, "%.*s", (int)op.Label.Name.Length, op.Label.Name.Data); break;
@@ -468,12 +603,13 @@ void print_instruction(FILE *out, asm_instruction *in) {
         default: {
             fprintf(out, "%s ", instruction_name(in->Op));
 
-            if (in->Op == ASM_RET) break;
+            if (in->Op == ASM_SYSCALL || in->Op == ASM_RET || in->Op == ASM_CDQ) break;
 
             print_operand(out, in->Dst);
 
-            if (in->Op == ASM_JE || in->Op == ASM_JMP || in->Op == ASM_PUSH || in->Op == ASM_POP ||
-                in->Op == ASM_SETNE || in->Op == ASM_SETE)
+            if (in->Op == ASM_IDIV || in->Op == ASM_SETL || in->Op == ASM_SETG || in->Op == ASM_SETLE ||
+                in->Op == ASM_SETGE || in->Op == ASM_JE || in->Op == ASM_JMP || in->Op == ASM_PUSH ||
+                in->Op == ASM_POP || in->Op == ASM_SETNE || in->Op == ASM_SETE)
                 break;
 
             fprintf(out, ", ");
@@ -495,7 +631,7 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
 
     asm_instruction *Instructions = (asm_instruction *)Code.InstructionArena.Data;
 
-    fprintf(out, ".intel_syntax noprefix\n.global main\n.type main, @function\n\n");
+    fprintf(out, ".intel_syntax noprefix\n.global _start\n\n");
 
     for (int i = 0; i < Code.InstructionCount; i++) {
         asm_instruction *Instr = Instructions + i;

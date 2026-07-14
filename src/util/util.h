@@ -7,6 +7,7 @@
 #include <execinfo.h>
 
 #define ArraySize(arr) (sizeof(arr) / sizeof((arr)[0]))
+#define Max(a, b) ((a) < (b) ? (b) : (a))
 
 // Reset
 #define ANSI_RESET "\033[0m"

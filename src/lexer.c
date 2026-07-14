@@ -150,7 +150,7 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             continue;
         }
 
-        if (is_letter(ch)) {
+        if (is_letter(ch) || ch == '_') {
             size_t Start = i;
             while (i < code.Length && is_identifier_char(code.Data[i])) i++;
             i--;

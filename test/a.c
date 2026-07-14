@@ -1,8 +1,7 @@
 int main() {
-    int a = 6;
-    int b = 5;
+    int64 a = 1;
 
-    int8 c = a != b;
+    if a < 0 return 67; else return 69;
 
-    return c;
+    return a;
 }

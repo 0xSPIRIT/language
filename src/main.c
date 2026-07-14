@@ -23,8 +23,6 @@ int main(int argc, char **argv) {
 
     token_list Tokens = tokenize(&Arena, Code, Filename);
 
-#define OUTPUT_ASM_TO_CONSOLE 0
-
     if (Tokens.Tokens) {
         ast_node *Tree = parse(&Arena, Tokens);
 
@@ -32,27 +30,51 @@ int main(int argc, char **argv) {
 
         // print_tree(Tree);
 
-        string_print(Code);
+        // string_print(Code);
 
-#if OUTPUT_ASM_TO_CONSOLE
-        FILE *out = stdout;
-#else
-        FILE *out = fopen("test.s", "w");
-#endif
+        constexpr bool OUTPUT_ASM_TO_CONSOLE = false;
 
-        program_code Program = gen_program_code(out, &Arena, Tree);
+        FILE *Out;
 
-#if !OUTPUT_ASM_TO_CONSOLE
-        fclose(out);
+        if (OUTPUT_ASM_TO_CONSOLE)
+            Out = stdout;
+        else
+            Out = fopen("test.s", "w+");
 
-        printf("Assembling...\n");
-        system("as -o test.o test.s");
+        program_code Program = gen_program_code(Out, &Arena, Tree);
 
-        printf("Linking...\n");
-        system("gcc -o test test.o");
+        if (!OUTPUT_ASM_TO_CONSOLE) {
+            long Size = ftell(Out);
 
-        printf("Compilation completed. Output: ./test\n");
-#endif
+            fseek(Out, 0, SEEK_SET);
+
+            char *Data = malloc(Size + 1);
+            Data[Size] = 0;
+            fread(Data, 1, Size, Out);
+            puts(Data);
+            fclose(Out);
+            free(Data);
+
+            int result;
+
+            printf("Assembling...\n");
+            result = system("as --gdwarf-5 -o test.o test.s");
+
+            if (!result) {
+                printf("Assembler successful.\n");
+
+                printf("Linking...\n");
+                result = system("ld -o test test.o");
+
+                if (!result) {
+                    printf("Compilation completed. Output: ./test\n");
+                } else {
+                    printf("Compilation failed.\n");
+                }
+            } else {
+                printf("Assembler failed!\n");
+            }
+        }
 
         free_program_code(&Program);
     } else {
