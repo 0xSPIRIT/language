@@ -62,18 +62,14 @@ typedef enum { SIZE_NONE = 0, SIZE_8, SIZE_16, SIZE_32, SIZE_64 } operand_size;
 
 typedef enum {
     REG_NONE = 0,
-
     REG_RAX,
     REG_RBX,
     REG_RCX,
     REG_RDX,
-
     REG_RSI,
     REG_RDI,
-
     REG_RBP,
     REG_RSP,
-
     REG_R8,
     REG_R9,
     REG_R10,

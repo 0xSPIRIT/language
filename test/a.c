@@ -1,7 +1,10 @@
 int main() {
-    int64 a = 1;
+    int a = 50;
+    int b = 50;
 
-    if a < 0 return 67; else return 69;
+    if (a - b == 0) {
+        return 2 * (a - b + 1);
+    }
 
     return a;
 }

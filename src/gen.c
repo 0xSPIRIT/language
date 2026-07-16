@@ -135,7 +135,7 @@ void emit_cmp(program_code *code, operand Left, operand Right) {
 void emit_test(program_code *code, operand A, operand B) {
     if (A.Type != OPERAND_REG) {
         operand Tmp = scratch_register(A.Size);
-        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Tmp, .Src = A});
+        emit_mov(code, Tmp, A);
         A = Tmp;
         B = Tmp;
     }
@@ -304,12 +304,10 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
 
         case NODE_BINARY_OP: {
             return gen_binop(node, code, depth);
-            break;
         }
 
         case NODE_UNARY_OP: {
             return gen_unaryop(node, code, depth);
-            break;
         }
 
         default: {
@@ -323,7 +321,10 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
 operand scratch_register(operand_size size) { return Reg(REG_R11, size); }
 
 void emit_mov(program_code *code, operand Dst, operand Src) {
-    if (Src.Reg.Register == Dst.Reg.Register && Src.Size == Dst.Size) return;
+    if (Src.Reg.Register == Dst.Reg.Register) {
+        if (Src.Size >= Dst.Size) return;
+        if (Dst.Size == SIZE_64) return;
+    }
 
     if (Src.Type == OPERAND_IMM) {
         emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Src});
@@ -334,7 +335,7 @@ void emit_mov(program_code *code, operand Dst, operand Src) {
         Src.Size = Dst.Size;
     }
 
-    bool NeedsExtend = Dst.Size > Src.Size;
+    bool NeedsExtend = Dst.Size > Src.Size && Dst.Size != SIZE_64;
     asm_opcode Op    = NeedsExtend ? ASM_MOVZX : ASM_MOV;
 
     if (Dst.Type == OPERAND_MEM && (NeedsExtend || Src.Type == OPERAND_MEM)) {
