@@ -28,10 +28,6 @@ int main(int argc, char **argv) {
 
         resolve_symbols(Tree);
 
-        // print_tree(Tree);
-
-        // string_print(Code);
-
         constexpr bool OUTPUT_ASM_TO_CONSOLE = false;
 
         FILE *Out;
