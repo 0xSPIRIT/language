@@ -58,7 +58,7 @@ typedef enum {
     OPERAND_LABEL,
 } operand_type;
 
-typedef enum { SIZE_NONE = 0, SIZE_8, SIZE_16, SIZE_32, SIZE_64 } operand_size;
+typedef enum { SIZE_NONE = 0, SIZE_8 = 1, SIZE_16 = 2, SIZE_32 = 4, SIZE_64 = 8 } operand_size;
 
 typedef enum {
     REG_NONE = 0,
@@ -128,6 +128,7 @@ typedef struct {
     size_t InstructionCount;
 
     int Label;
+    string CurrentBreakLabel;
 
     data_entry *DataEntries;
     size_t DataEntryCount;
@@ -135,8 +136,9 @@ typedef struct {
 
 program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast);
 void free_program_code(program_code *program);
-void print_instruction(FILE *out, asm_instruction *in);
+void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in);
 operand gen_expression(ast_node *node, program_code *code, int depth);
 operand scratch_register(operand_size size);
+void free_scratch_register(operand Op);
 void emit_mov(program_code *code, operand Dst, operand Src);
 operand gen_expression(ast_node *node, program_code *code, int depth);

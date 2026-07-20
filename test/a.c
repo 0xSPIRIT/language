@@ -1,10 +1,7 @@
+int result(int a, int b) {
+    return a + b + 1;
+}
+
 int main() {
-    int a = 50;
-    int b = 50;
-
-    if (a - b == 0) {
-        return 2 * (a - b + 1);
-    }
-
-    return a;
+    return result(5, 5);
 }

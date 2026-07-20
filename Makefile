@@ -1,2 +1,2 @@
 main:
-	gcc src/main.c -g -rdynamic -fsanitize=address -std=c2x -Wall -o bin/main
+	clang src/main.c -g -rdynamic -fsanitize=address -std=c23 -Wall -o bin/main

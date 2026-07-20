@@ -158,37 +158,32 @@ ast_node *parse_function_call(parser *p) {
 
     consume(p, TOKEN_OPEN_PAREN);
 
-    if (peek(p)->Type == TOKEN_CLOSE_PAREN) {
-        // No arguments
+    Node->Call.ArgCount = 0;
+    Node->Call.Args     = 0;
 
-        Node->Call.ArgCount = 0;
-        Node->Call.Args     = 0;
-    } else {
+    if (peek(p)->Type != TOKEN_CLOSE_PAREN) {
         // We have at least 1 argument
+        constexpr int MAX_PARAMS = 6;
 
-        int Saved = p->i;  // Save pointer
+        Node->Call.Args = arena_push(p->Arena, MAX_PARAMS * sizeof(ast_node *));
 
-        int ArgCount = 1;
+        while (has_next(p)) {
+            if (Node->Call.ArgCount >= MAX_PARAMS) {
+                parse_error(p, "Too many arguments!");
+                assert(false);
+            }
 
-        while (has_next(p) && peek(p)->Type != TOKEN_CLOSE_PAREN) {
-            if (advance(p)->Type == TOKEN_COMMA) ArgCount++;
-        }
-
-        p->i = Saved;  // Restore pointer
-
-        // Allocate args
-        Node->Call.ArgCount = ArgCount;
-        Node->Call.Args     = arena_push(p->Arena, ArgCount * sizeof(ast_node *));
-        int i               = 0;
-
-        while (has_next(p) && peek(p)->Type != TOKEN_CLOSE_PAREN) {
             ast_node *Expr = parse_expression(p);
 
             if (Expr) {
-                Node->Call.Args[i++] = Expr;
+                Node->Call.Args[Node->Call.ArgCount++] = Expr;
             }
 
-            if (peek(p)->Type == TOKEN_COMMA) advance(p);
+            if (peek(p)->Type == TOKEN_COMMA) {
+                advance(p);
+            } else {
+                break;
+            }
         }
     }
 

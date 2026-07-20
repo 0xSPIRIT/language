@@ -18,6 +18,7 @@ typedef enum {
     SECTION_STACK,
     SECTION_BSS,
     SECTION_DATA,
+    SECTION_REG,
 } section;
 
 typedef struct {
@@ -43,6 +44,7 @@ typedef struct symbol {
     union {
         int StackOffset;
         int FieldOffset;
+        int ParamIndex;
         struct_data Structure;
         func_data Function;
     };

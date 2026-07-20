@@ -28,49 +28,54 @@ int main(int argc, char **argv) {
 
         resolve_symbols(Tree);
 
-        constexpr bool OUTPUT_ASM_TO_CONSOLE = false;
+        // print_tree(Tree);
 
         FILE *Out;
 
-        if (OUTPUT_ASM_TO_CONSOLE)
-            Out = stdout;
-        else
-            Out = fopen("test.s", "w+");
+#define OUTPUT_ASM_TO_CONSOLE 1
+
+#if OUTPUT_ASM_TO_CONSOLE
+        Out = stdout;
+#else
+        Out = fopen("test.s", "w+");
+#endif
 
         program_code Program = gen_program_code(Out, &Arena, Tree);
 
-        if (!OUTPUT_ASM_TO_CONSOLE) {
-            long Size = ftell(Out);
+#if !OUTPUT_ASM_TO_CONSOLE
+        long Size = ftell(Out);
 
-            fseek(Out, 0, SEEK_SET);
+        fseek(Out, 0, SEEK_SET);
 
-            char *Data = malloc(Size + 1);
-            Data[Size] = 0;
-            fread(Data, 1, Size, Out);
-            puts(Data);
-            fclose(Out);
-            free(Data);
+        char *Data = arena_push(&Arena, Size + 1);
 
-            int result;
+        Data[Size] = 0;
+        fread(Data, 1, Size, Out);
 
-            printf("Assembling...\n");
-            result = system("as --gdwarf-5 -o test.o test.s");
+        puts(Data);
+
+        fclose(Out);
+
+        int result;
+
+        printf("Assembling...\n");
+        result = system("as --gdwarf-5 -o test.o test.s");
+
+        if (!result) {
+            printf("Assembler successful.\n");
+
+            printf("Linking...\n");
+            result = system("ld -o test test.o");
 
             if (!result) {
-                printf("Assembler successful.\n");
-
-                printf("Linking...\n");
-                result = system("ld -o test test.o");
-
-                if (!result) {
-                    printf("Compilation completed. Output: ./test\n");
-                } else {
-                    printf("Compilation failed.\n");
-                }
+                printf("Compilation completed. Output: ./test\n");
             } else {
-                printf("Assembler failed!\n");
+                printf("Compilation failed.\n");
             }
+        } else {
+            printf("Assembler failed!\n");
         }
+#endif
 
         free_program_code(&Program);
     } else {

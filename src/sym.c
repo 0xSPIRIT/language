@@ -148,10 +148,12 @@ symbol *search_struct_for_field(symbol *structure, string Name) {
     return NULL;
 }
 
+// param_index should be -1 if this variable is not a parameter
 symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena,
                                              symbols_scope *Scopes,
                                              int depth,
-                                             ast_node *var_decl) {
+                                             ast_node *var_decl,
+                                             int param_index) {
     ast_node *Type   = var_decl->VarDecl.Type;
     type DataType    = Type->DataType.Type;
     string FieldName = var_decl->VarDecl.Name->Ident.Name;
@@ -160,6 +162,11 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena,
         .Name = FieldName,
         .Type = SYM_VAR,
     };
+
+    if (param_index >= 0) {
+        DeclSym.Section = SECTION_REG;
+        DeclSym.ParamIndex = param_index;
+    }
 
     // Calculate pointer depth
     if (Type) {
@@ -215,49 +222,80 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena,
     return DeclSym;
 }
 
-void resolve_var_decl(memory_arena *arena, symbols_scope *Scopes, int depth, ast_node *VarDecl) {
-    symbol Sym = make_var_decl_symbol_and_resolve_type(arena, Scopes, depth, VarDecl);
+// param_index should be -1 if it's not a parameter. Returns new param_index
+int resolve_var_decl(memory_arena *arena, symbols_scope *Scopes, int depth, ast_node *VarDecl, int param_index) {
+    symbol Sym = make_var_decl_symbol_and_resolve_type(arena, Scopes, depth, VarDecl, param_index++);
 
     _resolve_symbols(arena, VarDecl->VarDecl.Name, Scopes, depth, Sym, false);
     _resolve_symbols(arena, VarDecl->VarDecl.Init, Scopes, depth, (symbol){}, false);
 
     for (int i = 0; i < VarDecl->VarDecl.ChildDeclsCount; i++) {
-        resolve_var_decl(arena, Scopes, depth, VarDecl->VarDecl.ChildDecls[i]);
+        resolve_var_decl(arena, Scopes, depth, VarDecl->VarDecl.ChildDecls[i], param_index++);
     }
+
+    return param_index;
 }
 
 // Returns the start of the parameter list
 symbol **resolve_parameters(memory_arena *arena, ast_node *func, symbols_scope *Scopes, int depth) {
     symbol **Result = Scopes[depth].Symbols + Scopes[depth].SymbolCount;
 
+    int ParamIdx = 0;
+
     for (int i = 0; i < func->FuncDef.ParamCount; i++) {
         ast_node *Param = func->FuncDef.Params[i];
-        resolve_var_decl(arena, Scopes, depth, Param);
+        ParamIdx = resolve_var_decl(arena, Scopes, depth, Param, ParamIdx);
     }
 
     return Result;
 }
-
+//
 // Returns size of all locals in the function.
-int resolve_stack_offsets(ast_node *block, int Offset) {
-    for (int i = 0; i < block->Block.StatementCount; i++) {
-        ast_node *Stmt = block->Block.Statements[i];
+int resolve_stack_offsets(ast_node *Stmt, int Offset) {
+    if (!Stmt) return Offset;
 
-        if (Stmt->Type == NODE_BLOCK) {
-            Offset = resolve_stack_offsets(Stmt, Offset);
-        } else if (Stmt->Type == NODE_VAR_DECL) {
+    switch (Stmt->Type) {
+        case NODE_BLOCK: {
+            for (int i = 0; i < Stmt->Block.StatementCount; i++) {
+                Offset = resolve_stack_offsets(Stmt->Block.Statements[i], Offset);
+            }
+            break;
+        }
+
+        case NODE_VAR_DECL: {
             ast_node *Identifier = Stmt->VarDecl.Name;
             symbol *Sym          = Identifier->Ident.Sym;
 
             Offset += Sym->Size;
             Sym->StackOffset = Offset;
+            break;
+        }
 
-            /*
-            printf("Name: %.*s Offset: %d\n",
-                   (int)Identifier->Ident.Name.Length,
-                   Identifier->Ident.Name.Data,
-                   Sym->StackOffset);
-                   */
+        case NODE_FOR: {
+            // 1. Resolve variables declared in the loop initialization: for(int i = 0; ...)
+            Offset = resolve_stack_offsets(Stmt->For.Init, Offset);
+
+            // 2. Resolve variables declared inside the loop body block
+            Offset = resolve_stack_offsets(Stmt->For.Body, Offset);
+            break;
+        }
+
+        case NODE_IF: {
+            // Resolve 'then' block and the optional 'else' block
+            Offset = resolve_stack_offsets(Stmt->If.ThenBlock, Offset);
+            Offset = resolve_stack_offsets(Stmt->If.ElseBlock, Offset);
+            break;
+        }
+
+        case NODE_WHILE: {
+            Offset = resolve_stack_offsets(Stmt->While.Body, Offset);
+            break;
+        }
+
+        default: {
+            // For general expressions or statements that don't declare variables,
+            // do nothing and just pass the offset along.
+            break;
         }
     }
 
@@ -306,7 +344,7 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes, i
 // structure is the symbol where the resulting field symbols are placed into
 int resolve_struct_decl_field(
     memory_arena *arena, symbols_scope *Scopes, int current_depth, symbol *structure, ast_node *var_decl) {
-    symbol FieldSym = make_var_decl_symbol_and_resolve_type(arena, Scopes, current_depth, var_decl);
+    symbol FieldSym = make_var_decl_symbol_and_resolve_type(arena, Scopes, current_depth, var_decl, -1);
 
     FieldSym.Type        = SYM_FIELD;
     FieldSym.FieldOffset = structure->Size;
@@ -355,7 +393,7 @@ void _resolve_symbols(
             break;
         }
         case NODE_VAR_DECL: {
-            resolve_var_decl(arena, Scopes, depth, node);
+            resolve_var_decl(arena, Scopes, depth, node, -1);
             break;
         }
         case NODE_BLOCK: {

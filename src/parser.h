@@ -51,8 +51,6 @@ typedef struct ast_node {
             struct ast_node **Params;  // array of NODE_VAR_DECL
             int ParamCount;
             struct ast_node *Body;  // NODE_BLOCK
-            // struct ast_node **Functions; // TODO: Implement storing nested functions here instead
-            // of needing to walk through Body
         } FuncDef;
 
         // NODE_BLOCK

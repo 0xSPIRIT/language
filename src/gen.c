@@ -14,16 +14,7 @@
 #define Rbp (Reg(REG_RBP, SIZE_64))
 #define Rsp (Reg(REG_RSP, SIZE_64))
 
-operand_size get_operand_size(int SizeBytes) {
-    switch (SizeBytes) {
-        case 1: return SIZE_8;
-        case 2: return SIZE_16;
-        case 4: return SIZE_32;
-        case 8: return SIZE_64;
-    }
-
-    return 0;
-}
+constexpr register_id ParamRegisters[] = {REG_RDI, REG_RSI, REG_RDX, REG_RCX, REG_R8, REG_R9};
 
 void gen_error(const char *format, ...) {
     va_list Args;
@@ -119,6 +110,11 @@ void emit_jump(program_code *code, string Label) {
 }
 
 void emit_cmp(program_code *code, operand Left, operand Right) {
+    if (Left.Size == SIZE_NONE)
+        Left.Size = Right.Size;
+    else if (Right.Size == SIZE_NONE)
+        Right.Size = Left.Size;
+
     if (Left.Size < Right.Size) {
         Right.Size = Left.Size;
     }
@@ -127,19 +123,28 @@ void emit_cmp(program_code *code, operand Left, operand Right) {
         operand Tmp = scratch_register(Left.Size);
         emit_mov(code, Tmp, Left);
         emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Tmp, .Src = Right});
+        free_scratch_register(Tmp);
     } else {
         emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Left, .Src = Right});
     }
 }
 
 void emit_test(program_code *code, operand A, operand B) {
+    bool UsedScratch = false;
+    operand Tmp;
+
     if (A.Type != OPERAND_REG) {
-        operand Tmp = scratch_register(A.Size);
+        Tmp = scratch_register(A.Size);
         emit_mov(code, Tmp, A);
         A = Tmp;
         B = Tmp;
+
+        UsedScratch = true;
     }
+
     emit(code, (asm_instruction){.Op = ASM_TEST, .Dst = A, .Src = B});
+
+    if (UsedScratch) free_scratch_register(Tmp);
 }
 
 void emit_je(program_code *code, string Label) {
@@ -179,26 +184,35 @@ operand gen_math(program_code *code, token_type Op, operand Left, operand Right)
         default:           assert(false); break;
     }
 
+    bool UsedScratch = false;
+    operand Tmp;
+
     if (MathOp == ASM_IDIV) {
         emit_mov(code, Reg(REG_RAX, Size), Left);
         emit(code, (asm_instruction){.Op = ASM_CDQ});
 
         if (Right.Type == OPERAND_IMM) {
-            operand Tmp = scratch_register(Size);
+            Tmp = scratch_register(Size);
             emit_mov(code, Tmp, Right);
             Right = Tmp;
+
+            UsedScratch = true;
         }
 
         emit(code, (asm_instruction){.Op = ASM_IDIV, .Dst = Right});
     } else {
         if (Right.Type == OPERAND_REG && Right.Reg.Register == REG_RAX) {
-            operand Tmp = scratch_register(Size);
+            Tmp = scratch_register(Size);
             emit_mov(code, Tmp, Right);
             Right = Tmp;
+
+            UsedScratch = true;
         }
         emit_mov(code, Reg(REG_RAX, Size), Left);
         emit(code, (asm_instruction){.Op = MathOp, .Dst = Reg(REG_RAX, Size), .Src = Right});
     }
+
+    if (UsedScratch) free_scratch_register(Tmp);
 
     return Reg(REG_RAX, Size);
 }
@@ -207,8 +221,23 @@ operand gen_math(program_code *code, token_type Op, operand Left, operand Right)
 operand gen_binop(ast_node *node, program_code *code, int depth) {
     token_type Op = node->BinaryOp.Operation;
 
-    operand Left  = gen_expression(node->BinaryOp.Left, code, depth);
+    operand Left = gen_expression(node->BinaryOp.Left, code, depth);
+
+    // If Left is stored in RAX, move it to a safe scratch register
+    // so evaluating Right doesn't overwrite it.
+    bool LeftSaved = false;
+    operand SafeLeft;
+
+    if (Left.Type == OPERAND_REG && Left.Reg.Register == REG_RAX) {
+        SafeLeft = scratch_register(Left.Size);
+        emit_mov(code, SafeLeft, Left);
+        Left      = SafeLeft;
+        LeftSaved = true;
+    }
+
     operand Right = gen_expression(node->BinaryOp.Right, code, depth);
+
+    operand Result;
 
     switch (Op) {
         case TOKEN_EQUALS_EQUALS:
@@ -221,26 +250,36 @@ operand gen_binop(ast_node *node, program_code *code, int depth) {
 
             emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Reg(REG_RAX, SIZE_32), .Src = Reg(REG_RAX, SIZE_8)});
 
-            return Reg(REG_RAX, SIZE_32);
+            Result = Reg(REG_RAX, SIZE_32);
+            break;
         }
         case TOKEN_LESS:
         case TOKEN_MORE:
         case TOKEN_LESS_EQUALS:
         case TOKEN_MORE_EQUALS: {
-            return gen_comparison(code, Op, Left, Right);
+            Result = gen_comparison(code, Op, Left, Right);
+            break;
         }
         case TOKEN_PLUS:
         case TOKEN_MINUS:
         case TOKEN_STAR:
         case TOKEN_DIVIDE: {
-            return gen_math(code, node->BinaryOp.Operation, Left, Right);
+            Result = gen_math(code, node->BinaryOp.Operation, Left, Right);
+            break;
         }
 
         default: {
             gen_error("Didn't implement this binary operation %s\n", token_name(Op));
-            return (operand){};
+            Result = (operand){};
+            break;
         }
     }
+
+    if (LeftSaved) {
+        free_scratch_register(SafeLeft);
+    }
+
+    return Result;
 }
 
 operand gen_negate(program_code *code, ast_node *node, operand Operand) {
@@ -256,16 +295,91 @@ operand gen_negate(program_code *code, ast_node *node, operand Operand) {
     return Operand;
 }
 
+// Prefix -> ++a, Postfix -> a++
+operand gen_inc_dec(program_code *Code, int Depth, ast_node *Node, bool Increment, bool Prefix) {
+    operand Var = gen_expression(Node, Code, Depth);
+
+    if (Var.Type == OPERAND_IMM) {
+        gen_error("Can't ++ or -- an immediate value.");
+        return (operand){};
+    }
+
+    operand Temp = Reg(REG_R10, Var.Size);
+
+    if (!Prefix) {
+        emit_mov(Code, Temp, Var);
+    }
+
+    operand Right = Imm(1);
+
+    operand Result = gen_math(Code, Increment ? TOKEN_PLUS : TOKEN_MINUS, Var, Right);
+
+    emit_mov(Code, Var, Result);
+
+    return Prefix ? Var : Temp;
+}
+
 operand gen_unaryop(ast_node *node, program_code *code, int depth) {
     token_type Operation = node->UnaryOp.Operation;
     operand Operand      = gen_expression(node->UnaryOp.Operand, code, depth);
 
+    bool Prefix = node->UnaryOp.First;
+
     switch (Operation) {
         case TOKEN_MINUS: return gen_negate(code, node, Operand);
+        case TOKEN_INC:   return gen_inc_dec(code, depth, node->UnaryOp.Operand, true, Prefix);
+        case TOKEN_DEC:   return gen_inc_dec(code, depth, node->UnaryOp.Operand, false, Prefix);
         default:          assert(false); break;
     }
 
     return Operand;
+}
+
+operand gen_call(ast_node *node, program_code *code, int depth) {
+    assert(node->Type == NODE_CALL);
+
+    string Name = node->Call.FuncName->Ident.Name;
+
+    if (node->Call.ArgCount > ArraySize(ParamRegisters)) {
+        gen_error("Haven't gotten to implementing stack arguments yet!");
+        assert(false);
+    }
+
+    operand EvaluatedArgs[6];
+
+    for (int i = 0; i < node->Call.ArgCount; i++) {
+        operand ArgI        = gen_expression(node->Call.Args[i], code, depth);
+        int ExpectedArgSize = node->Call.FuncName->Ident.Sym->Function.Params[i]->Size;
+
+        if (ArgI.Size > SIZE_64) {
+            gen_error("Haven't gotten to implementing this yet!");
+            assert(false);
+            continue;
+        }
+
+        operand ScratchReg = scratch_register(ExpectedArgSize);
+        emit_mov(code, ScratchReg, ArgI);
+
+        EvaluatedArgs[i] = ScratchReg;
+    }
+
+    for (int i = 0; i < node->Call.ArgCount; i++) {
+        int ExpectedArgSize = node->Call.FuncName->Ident.Sym->Function.Params[i]->Size;
+        operand TargetReg   = Reg(ParamRegisters[i], ExpectedArgSize);
+        emit_mov(code, TargetReg, EvaluatedArgs[i]);
+    }
+
+    for (int i = node->Call.ArgCount - 1; i >= 0; i--) {
+        free_scratch_register(EvaluatedArgs[i]);
+    }
+
+    emit(code, (asm_instruction){.Op = ASM_CALL, .Dst = LabelOperand(Name)});
+
+    int ReturnSize = get_type_size(node->Call.FuncName->Ident.Sym->Function.ReturnType);
+
+    assert(ReturnSize > 0);
+
+    return Reg(REG_RAX, ReturnSize);
 }
 
 // Emit instructions and generate a resulting operand
@@ -276,24 +390,30 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
         case NODE_IDENT: {
             symbol *Sym = node->Ident.Sym;
 
-            Result.Type = OPERAND_MEM;
-            Result.Size = get_operand_size(Sym->Size);
+            if (Sym->Section == SECTION_REG) {
+                Result.Type         = OPERAND_REG;
+                Result.Size         = Sym->Size;
+                Result.Reg.Register = ParamRegisters[Sym->ParamIndex];
+            } else {
+                Result.Type = OPERAND_MEM;
+                Result.Size = Sym->Size;
 
-            if (Sym->Section == SECTION_STACK) {
-                Result.Mem.Base   = REG_RBP;
-                Result.Mem.Offset = -Sym->StackOffset;
+                if (Sym->Section == SECTION_STACK) {
+                    Result.Mem.Base   = REG_RBP;
+                    Result.Mem.Offset = -Sym->StackOffset;
+                }
             }
             break;
         }
         case NODE_CHAR_LIT: {
             Result.Type      = OPERAND_IMM;
-            Result.Size      = 1;
+            Result.Size      = SIZE_8;
             Result.Imm.Value = node->CharLit.Value;
             break;
         }
         case NODE_INT_LIT: {
             Result.Type      = OPERAND_IMM;
-            Result.Size      = 4;  // TODO: Is this a good idea?
+            Result.Size      = SIZE_NONE;
             Result.Imm.Value = node->IntegerLit.Value;
             break;
         }
@@ -310,6 +430,10 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
             return gen_unaryop(node, code, depth);
         }
 
+        case NODE_CALL: {
+            return gen_call(node, code, depth);
+        }
+
         default: {
             break;
         }
@@ -318,9 +442,36 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
     return Result;
 }
 
-operand scratch_register(operand_size size) { return Reg(REG_R11, size); }
+register_id ScratchRegisters[] = {REG_R10, REG_R11, REG_R12, REG_R13, REG_R14, REG_R15, REG_RBX};
+
+int NextFreeRegister = 0;
+
+operand scratch_register(operand_size size) {
+    if (NextFreeRegister >= ArraySize(ScratchRegisters)) {
+        gen_error("Expression too complex, ran out of scratch registers.");
+        return (operand){};
+    }
+
+    return Reg(ScratchRegisters[NextFreeRegister++], size);
+}
+
+void free_scratch_register(operand Op) {
+    if (NextFreeRegister <= 0) {
+        gen_error("Compiler bug: Attempted to free a register when none are allocated.");
+        return;
+    }
+
+    if (ScratchRegisters[NextFreeRegister - 1] != Op.Reg.Register) {
+        gen_error("Compiler bug: Scratch registers were not freed in strict LIFO order.");
+        return;
+    }
+
+    NextFreeRegister--;
+}
 
 void emit_mov(program_code *code, operand Dst, operand Src) {
+    if (Src.Size == SIZE_NONE) Src.Size = Dst.Size;
+
     if (Src.Reg.Register == Dst.Reg.Register) {
         if (Src.Size >= Dst.Size) return;
         if (Dst.Size == SIZE_64) return;
@@ -342,6 +493,7 @@ void emit_mov(program_code *code, operand Dst, operand Src) {
         operand Tmp = scratch_register(Dst.Size);
         emit(code, (asm_instruction){.Op = Op, .Dst = Tmp, .Src = Src});
         emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Tmp});
+        free_scratch_register(Tmp);
     } else {
         emit(code, (asm_instruction){.Op = Op, .Dst = Dst, .Src = Src});
     }
@@ -358,7 +510,7 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             ast_node *Name = node->FuncDef.Name;
 
             code->CurrentFunction           = Name->Ident.Name;
-            code->CurrentFunctionReturnSize = get_operand_size(get_type_size(node->FuncDef.ReturnType->DataType.Type));
+            code->CurrentFunctionReturnSize = get_type_size(node->FuncDef.ReturnType->DataType.Type);
 
             int local_size = Name->Ident.Sym->Size;
 
@@ -408,6 +560,11 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             }
             break;
         }
+        case NODE_UNARY_OP:
+        case NODE_CALL:     {
+            gen_expression(node, code, depth);
+            break;
+        }
         case NODE_IF: {
             operand Result = gen_expression(node->If.Condition, code, depth + 1);
 
@@ -430,13 +587,40 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             }
             break;
         }
+        case NODE_WHILE: {
+            string Start = emit_next_label(code);
+            string End   = new_label(code);
+
+            operand Condition = gen_expression(node->While.Condition, code, depth + 1);
+
+            emit_test(code, Condition, Condition);
+            emit_je(code, End);
+
+            gen_statement(node->While.Body, code, depth + 1);
+
+            emit_jump(code, Start);
+
+            emit_label(code, End);
+            break;
+        }
         case NODE_FOR: {
-            /*
-            process_node(node->For.Init, code, depth + 1);
-            // TODO: while (node->For.Condition)
-            process_node(node->For.Body, code, depth + 1);
-            process_node(node->For.Advance, code, depth + 1);
-            */
+            gen_statement(node->For.Init, code, depth + 1);
+
+            string Start = emit_next_label(code);
+            string End   = new_label(code);
+
+            operand Condition = gen_expression(node->For.Condition, code, depth + 1);
+
+            emit_test(code, Condition, Condition);
+            emit_je(code, End);
+
+            gen_statement(node->For.Body, code, depth + 1);
+
+            gen_statement(node->For.Advance, code, depth + 1);
+
+            emit_jump(code, Start);
+
+            emit_label(code, End);
             break;
         }
         case NODE_RETURN: {
@@ -462,7 +646,7 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             // Variable is stored at [rbp - Offset]
             operand Mem = {
                 .Type = OPERAND_MEM,
-                .Size = get_operand_size(Sym->Size),
+                .Size = Sym->Size,
                 .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Offset = -Offset}
             };
 
@@ -481,29 +665,64 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
     }
 }
 
-char *register_name(register_id Reg, operand_size Size) {
+char *register_name(memory_arena *Arena, register_id Reg, operand_size Size) {
+    int Index;
+
+    switch (Size) {
+        case 1:  Index = 0; break;
+        case 2:  Index = 1; break;
+        case 4:  Index = 2; break;
+        case 8:  Index = 3; break;
+        default: assert(false); break;
+    }
+
+    static const char *RegNames[][4] = {
+        [REG_RAX] = {"al",  "ax", "eax", "rax"},
+        [REG_RBX] = {"bl",  "bx", "ebx", "rbx"},
+        [REG_RCX] = {"cl",  "cx", "ecx", "rcx"},
+        [REG_RDX] = {"dl",  "dx", "edx", "rdx"},
+        [REG_RSI] = {"sil", "si", "esi", "rsi"},
+        [REG_RDI] = {"dil", "di", "edi", "rdi"},
+        [REG_RBP] = {"bpl", "bp", "ebp", "rbp"},
+        [REG_RSP] = {"spl", "sp", "esp", "rsp"},
+    };
+
     switch (Reg) {
-        case REG_NONE: break;
+        case REG_NONE: return "(none)";
 
-        case REG_RAX: return (char *[]){"al", "ax", "eax", "rax"}[Size - 1];
-        case REG_RBX: return "rbx";
-        case REG_RCX: return "rcx";
-        case REG_RDX: return "rdx";
+        case REG_RAX:
+        case REG_RBX:
+        case REG_RCX:
+        case REG_RDX:
+        case REG_RSI:
+        case REG_RDI:
+        case REG_RBP:
+        case REG_RSP: return (char *)RegNames[Reg][Index];
 
-        case REG_RSI: return "rsi";
-        case REG_RDI: return "rdi";
+        case REG_R8:
+        case REG_R9:
+        case REG_R10:
+        case REG_R11:
+        case REG_R12:
+        case REG_R13:
+        case REG_R14:
+        case REG_R15: {
+            int RegNum                   = (int)Reg - REG_R8 + 8;
+            static const char Suffixes[] = "bwd";
+            char Suffix                  = Suffixes[Index];
 
-        case REG_RBP: return "rbp";
-        case REG_RSP: return "rsp";
+            // Allocate buffer from the arena (e.g., "r15d\0" fits inside 5-6 bytes)
+            char *Result = (char *)arena_push(Arena, 6);
+            if (Suffix != '\0') {
+                sprintf(Result, "r%d%c", RegNum, Suffix);
+            } else {
+                sprintf(Result, "r%d", RegNum);
+            }
 
-        case REG_R8:  return "r8";
-        case REG_R9:  return "r9";
-        case REG_R10: return "r10";
-        case REG_R11: return (char *[]){"r11b", "r11w", "r11d", "r11"}[Size - 1];
-        case REG_R12: return "r12";
-        case REG_R13: return "r13";
-        case REG_R14: return "r14";
-        case REG_R15: return "r15";
+            return Result;
+        }
+
+        default: break;
     }
 
     return "(null)";
@@ -521,9 +740,9 @@ char *size_directive(operand_size size) {
     return "(invalid size)";
 }
 
-void print_mem(FILE *out, operand op) {
-    fprintf(out, "%s [%s", size_directive(op.Size), register_name(op.Mem.Base, op.Size));
-    if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(op.Mem.Index, op.Size), op.Mem.Scale);
+void print_mem(memory_arena *Arena, FILE *out, operand op) {
+    fprintf(out, "%s [%s", size_directive(op.Size), register_name(Arena, op.Mem.Base, op.Size));
+    if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(Arena, op.Mem.Index, op.Size), op.Mem.Scale);
 
     int Off = op.Mem.Offset;
 
@@ -537,12 +756,12 @@ void print_mem(FILE *out, operand op) {
     fprintf(out, "%d]", Off);
 }
 
-void print_operand(FILE *out, operand op) {
+void print_operand(memory_arena *Arena, FILE *out, operand op) {
     switch (op.Type) {
         case OPERAND_NONE:  fprintf(out, "none"); break;
-        case OPERAND_REG:   fprintf(out, "%s", register_name(op.Reg.Register, op.Size)); break;
+        case OPERAND_REG:   fprintf(out, "%s", register_name(Arena, op.Reg.Register, op.Size)); break;
         case OPERAND_IMM:   fprintf(out, "%lld", (long long)op.Imm.Value); break;
-        case OPERAND_MEM:   print_mem(out, op); break;
+        case OPERAND_MEM:   print_mem(Arena, out, op); break;
         case OPERAND_LABEL: fprintf(out, "%.*s", (int)op.Label.Name.Length, op.Label.Name.Data); break;
         default:            fprintf(out, "operand(?)"); break;
     }
@@ -594,7 +813,7 @@ char *instruction_name(asm_opcode Opcode) {
     return "[Invalid Instruction]";
 }
 
-void print_instruction(FILE *out, asm_instruction *in) {
+void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in) {
     switch (in->Op) {
         case ASM_LABEL: {
             string_print_to(out, in->Dst.Label.Name);
@@ -606,15 +825,15 @@ void print_instruction(FILE *out, asm_instruction *in) {
 
             if (in->Op == ASM_SYSCALL || in->Op == ASM_RET || in->Op == ASM_CDQ) break;
 
-            print_operand(out, in->Dst);
+            print_operand(Arena, out, in->Dst);
 
-            if (in->Op == ASM_IDIV || in->Op == ASM_SETL || in->Op == ASM_SETG || in->Op == ASM_SETLE ||
-                in->Op == ASM_SETGE || in->Op == ASM_JE || in->Op == ASM_JMP || in->Op == ASM_PUSH ||
-                in->Op == ASM_POP || in->Op == ASM_SETNE || in->Op == ASM_SETE)
+            if (in->Op == ASM_CALL || in->Op == ASM_IDIV || in->Op == ASM_SETL || in->Op == ASM_SETG ||
+                in->Op == ASM_SETLE || in->Op == ASM_SETGE || in->Op == ASM_JE || in->Op == ASM_JMP ||
+                in->Op == ASM_PUSH || in->Op == ASM_POP || in->Op == ASM_SETNE || in->Op == ASM_SETE)
                 break;
 
             fprintf(out, ", ");
-            print_operand(out, in->Src);
+            print_operand(Arena, out, in->Src);
             break;
         }
     }
@@ -634,13 +853,17 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
 
     fprintf(out, ".intel_syntax noprefix\n.global _start\n\n");
 
+    memory_arena AsmArena = make_arena();
+
     for (int i = 0; i < Code.InstructionCount; i++) {
         asm_instruction *Instr = Instructions + i;
 
         if (Instr->Op != ASM_LABEL) fprintf(out, "  ");
 
-        print_instruction(out, Instr);
+        print_instruction(&AsmArena, out, Instr);
     }
+
+    free_arena(&AsmArena);
 
     return Code;
 }
