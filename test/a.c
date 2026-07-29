@@ -1,7 +1,11 @@
-int result(int a, int b) {
-    return a + b + 1;
+int mul(int a, int b) {
+    return a * b;
+}
+
+int add(int a, int b) {
+    return a + b;
 }
 
 int main() {
-    return result(5, 5);
+    return add(5, 2) + mul(2, 2);
 }

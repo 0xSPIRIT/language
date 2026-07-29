@@ -28,33 +28,20 @@ int main(int argc, char **argv) {
 
         resolve_symbols(Tree);
 
-        // print_tree(Tree);
+        print_tree(Tree);
+
+        string_print(Code);
+        printf("\n\n");
 
         FILE *Out;
 
-#define OUTPUT_ASM_TO_CONSOLE 1
-
-#if OUTPUT_ASM_TO_CONSOLE
-        Out = stdout;
-#else
         Out = fopen("test.s", "w+");
-#endif
 
         program_code Program = gen_program_code(Out, &Arena, Tree);
 
-#if !OUTPUT_ASM_TO_CONSOLE
-        long Size = ftell(Out);
-
-        fseek(Out, 0, SEEK_SET);
-
-        char *Data = arena_push(&Arena, Size + 1);
-
-        Data[Size] = 0;
-        fread(Data, 1, Size, Out);
-
-        puts(Data);
-
         fclose(Out);
+
+        system("cat test.s");
 
         int result;
 
@@ -75,7 +62,6 @@ int main(int argc, char **argv) {
         } else {
             printf("Assembler failed!\n");
         }
-#endif
 
         free_program_code(&Program);
     } else {

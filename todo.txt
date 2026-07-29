@@ -1,10 +1,6 @@
-[ ] Replace all the arrays that should be dynamic, with proper
-    dynamic arrays. The rest of the data should go into the arenas.
-
-Code gen:
-  [ ] All binary operations
-  [ ] While loop
-  [ ] For loop
-  [ ] structs
-  [ ] pointers
-  [ ] returning structs (>8 bytes)
+[ ] In the symbol resolver, we're using the wrong structure to keep track of
+    symbols in a scope. When a function exits, it needs to keep that memory
+    alive still. Each symbols_scope should represent one function, not one
+    entire program. We learnt of this error when there were two functions
+    with the same parameter name.
+[ ] Scratch registers must never be used / freed containing function calls.

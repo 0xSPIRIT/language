@@ -3,8 +3,8 @@
 #include "type.h"
 #include "util/string.h"
 
-constexpr int MAX_DEPTH   = 512;
-constexpr int MAX_SYMBOLS = 16384;
+constexpr int MAX_SCOPES  = 16384;
+constexpr int MAX_SYMBOLS = 16384;  // per scope
 constexpr int MAX_FIELDS  = 16384;
 
 typedef enum {
@@ -50,14 +50,18 @@ typedef struct symbol {
     };
 } symbol;
 
-typedef struct {
+typedef struct symbols_scope {
     symbol **Symbols;
     size_t SymbolCount;
+
+    struct symbols_scope *Parent; // Parent scope.
 } symbols_scope;
 
 typedef struct {
-    symbols_scope *Symbols;
-} symbol_resolver;
+    symbols_scope *Scopes;
+    symbols_scope *CurrentScope;
+    int Count;
+} scopes;
 
 struct ast_node;
 
@@ -65,8 +69,9 @@ int resolve_type_size(struct ast_node *type);
 struct ast_node *get_node_identifier(struct ast_node *node);
 void _resolve_symbols(memory_arena *arena,
                       struct ast_node *node,
-                      symbols_scope *Scopes,
-                      int depth,
+                      scopes *Scopes,
                       symbol current_symbol,
                       bool must_exist);
 int get_type_size(type t);
+symbols_scope *push_scope(memory_arena *Arena, scopes *Scopes);
+void pop_scope(scopes *Scopes);

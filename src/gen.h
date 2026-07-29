@@ -18,10 +18,10 @@ typedef enum {
     ASM_NOT,
     ASM_SHL,
     ASM_SHR,
-    ASM_SAR,    // arithmetic right shift, important for signed types
-    ASM_CDQ,    // sign-extend rax into rdx:rax before idiv
-    ASM_MOVSX,  // sign-extending move, counterpart to your MOVZX
-    ASM_NOP,    // useful for debugging
+    ASM_SAR,
+    ASM_CDQ,
+    ASM_MOVSX,
+    ASM_NOP,
     ASM_PUSH,
     ASM_POP,
     ASM_ADD,
@@ -137,8 +137,7 @@ typedef struct {
 program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast);
 void free_program_code(program_code *program);
 void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in);
-operand gen_expression(ast_node *node, program_code *code, int depth);
+operand emit_expression(ast_node *node, program_code *code, int depth);
 operand scratch_register(operand_size size);
 void free_scratch_register(operand Op);
 void emit_mov(program_code *code, operand Dst, operand Src);
-operand gen_expression(ast_node *node, program_code *code, int depth);

@@ -16,7 +16,7 @@
 
 constexpr register_id ParamRegisters[] = {REG_RDI, REG_RSI, REG_RDX, REG_RCX, REG_R8, REG_R9};
 
-void gen_error(const char *format, ...) {
+void emit_error(const char *format, ...) {
     va_list Args;
     va_start(Args, format);
 
@@ -38,6 +38,8 @@ void emit_count(program_code *code, asm_instruction *instructions, int count) {
 }
 
 void emit(program_code *code, asm_instruction instruction) { emit_count(code, &instruction, 1); }
+
+void emit_nop(program_code *code) { emit(code, (asm_instruction){.Op = ASM_NOP}); }
 
 string new_label(program_code *code) {
     string Name = string_make(code->GeneralArena, 32);
@@ -62,8 +64,36 @@ string emit_function_label(program_code *code, string Name) {
     return Name;
 }
 
-void emit_function_prologue(program_code *code, size_t local_size) {
-    size_t AlignedSize = 16 * (local_size / 16 + (local_size % 16 > 0));
+void emit_spill_params(program_code *code, symbol *FuncSym, size_t local_size) {
+    for (int i = 0; i < FuncSym->Function.ParamCount; i++) {
+        symbol *Param = FuncSym->Function.Params[i];
+
+        // Give each parameter a stack slot
+        local_size += Param->Size;
+
+        Param->StackOffset = local_size;
+        Param->Section     = SECTION_STACK;
+
+        operand Dst = {
+            .Type = OPERAND_MEM, .Size = Param->Size, .Mem = {.Base = REG_RBP, .Offset = -Param->StackOffset}
+        };
+
+        emit_mov(code, Dst, Reg(ParamRegisters[i], Param->Size));
+    }
+}
+
+size_t total_param_bytes(symbol *FuncSym) {
+    size_t Result = 0;
+
+    for (int i = 0; i < FuncSym->Function.ParamCount; i++) {
+        Result += FuncSym->Function.Params[i]->Size;
+    }
+
+    return Result;
+}
+
+void emit_function_prologue(program_code *code, size_t frame_size) {
+    size_t AlignedSize = 16 * (frame_size / 16 + (frame_size % 16 > 0));
 
     asm_instruction Instructions[] = {
         {.Op = ASM_PUSH, .Dst = Rbp},
@@ -151,7 +181,7 @@ void emit_je(program_code *code, string Label) {
     emit(code, (asm_instruction){.Op = ASM_JE, .Dst = LabelOperand(Label)});
 }
 
-operand gen_comparison(program_code *code, token_type Op, operand Left, operand Right) {
+operand emit_comparison(program_code *code, token_type Op, operand Left, operand Right) {
     emit_cmp(code, Left, Right);
 
     asm_opcode SetOpcode;
@@ -171,8 +201,10 @@ operand gen_comparison(program_code *code, token_type Op, operand Left, operand 
     return Reg(REG_RAX, SIZE_32);
 }
 
-operand gen_math(program_code *code, token_type Op, operand Left, operand Right) {
+operand emit_math(program_code *code, token_type Op, operand Left, operand Right) {
     int Size = Max(Left.Size, Right.Size);
+
+    if (Size == 0) Size = SIZE_32;
 
     asm_opcode MathOp;
 
@@ -217,25 +249,37 @@ operand gen_math(program_code *code, token_type Op, operand Left, operand Right)
     return Reg(REG_RAX, Size);
 }
 
+bool expr_may_clobber_rax(ast_node *node) {
+    switch (node->Type) {
+        case NODE_IDENT:
+        case NODE_INT_LIT:
+        case NODE_CHAR_LIT:
+        case NODE_STRING_LIT: return false;
+        default:              return true;
+    }
+}
+
 // The result is stored in the register that the return value points to (Rax)
-operand gen_binop(ast_node *node, program_code *code, int depth) {
+operand emit_binop(ast_node *node, program_code *code, int depth) {
     token_type Op = node->BinaryOp.Operation;
 
-    operand Left = gen_expression(node->BinaryOp.Left, code, depth);
+    operand Left = emit_expression(node->BinaryOp.Left, code, depth);
 
-    // If Left is stored in RAX, move it to a safe scratch register
-    // so evaluating Right doesn't overwrite it.
+    // If Left is stored in RAX, move it to a spill stack location so evaluating Right doesn't overwrite it.
     bool LeftSaved = false;
     operand SafeLeft;
 
-    if (Left.Type == OPERAND_REG && Left.Reg.Register == REG_RAX) {
+    // TODO: Using scratch registers here is not correct. Use spill space
+    //       on the stack frame instead, OR use callee-saved registers.
+
+    if (Left.Type == OPERAND_REG && Left.Reg.Register == REG_RAX && expr_may_clobber_rax(node->BinaryOp.Right)) {
         SafeLeft = scratch_register(Left.Size);
         emit_mov(code, SafeLeft, Left);
         Left      = SafeLeft;
         LeftSaved = true;
     }
 
-    operand Right = gen_expression(node->BinaryOp.Right, code, depth);
+    operand Right = emit_expression(node->BinaryOp.Right, code, depth);
 
     operand Result;
 
@@ -257,19 +301,19 @@ operand gen_binop(ast_node *node, program_code *code, int depth) {
         case TOKEN_MORE:
         case TOKEN_LESS_EQUALS:
         case TOKEN_MORE_EQUALS: {
-            Result = gen_comparison(code, Op, Left, Right);
+            Result = emit_comparison(code, Op, Left, Right);
             break;
         }
         case TOKEN_PLUS:
         case TOKEN_MINUS:
         case TOKEN_STAR:
         case TOKEN_DIVIDE: {
-            Result = gen_math(code, node->BinaryOp.Operation, Left, Right);
+            Result = emit_math(code, node->BinaryOp.Operation, Left, Right);
             break;
         }
 
         default: {
-            gen_error("Didn't implement this binary operation %s\n", token_name(Op));
+            emit_error("Didn't implement this binary operation %s\n", token_name(Op));
             Result = (operand){};
             break;
         }
@@ -282,7 +326,7 @@ operand gen_binop(ast_node *node, program_code *code, int depth) {
     return Result;
 }
 
-operand gen_negate(program_code *code, ast_node *node, operand Operand) {
+operand emit_negate(program_code *code, ast_node *node, operand Operand) {
     if (Operand.Type == OPERAND_IMM) {
         assert(node->UnaryOp.Operand->Type == NODE_INT_LIT);
         Operand.Imm.Value = -node->UnaryOp.Operand->IntegerLit.Value;
@@ -295,16 +339,15 @@ operand gen_negate(program_code *code, ast_node *node, operand Operand) {
     return Operand;
 }
 
-// Prefix -> ++a, Postfix -> a++
-operand gen_inc_dec(program_code *Code, int Depth, ast_node *Node, bool Increment, bool Prefix) {
-    operand Var = gen_expression(Node, Code, Depth);
+operand emit_inc_dec(program_code *Code, int Depth, ast_node *Node, bool Increment, bool Prefix) {
+    operand Var = emit_expression(Node, Code, Depth);
 
     if (Var.Type == OPERAND_IMM) {
-        gen_error("Can't ++ or -- an immediate value.");
+        emit_error("Can't ++ or -- an immediate value.");
         return (operand){};
     }
 
-    operand Temp = Reg(REG_R10, Var.Size);
+    operand Temp = scratch_register(Var.Size);
 
     if (!Prefix) {
         emit_mov(Code, Temp, Var);
@@ -312,65 +355,50 @@ operand gen_inc_dec(program_code *Code, int Depth, ast_node *Node, bool Incremen
 
     operand Right = Imm(1);
 
-    operand Result = gen_math(Code, Increment ? TOKEN_PLUS : TOKEN_MINUS, Var, Right);
+    operand Result = emit_math(Code, Increment ? TOKEN_PLUS : TOKEN_MINUS, Var, Right);
 
     emit_mov(Code, Var, Result);
 
     return Prefix ? Var : Temp;
 }
 
-operand gen_unaryop(ast_node *node, program_code *code, int depth) {
+operand emit_unaryop(ast_node *node, program_code *code, int depth) {
     token_type Operation = node->UnaryOp.Operation;
-    operand Operand      = gen_expression(node->UnaryOp.Operand, code, depth);
+    operand Operand      = emit_expression(node->UnaryOp.Operand, code, depth);
 
     bool Prefix = node->UnaryOp.First;
 
     switch (Operation) {
-        case TOKEN_MINUS: return gen_negate(code, node, Operand);
-        case TOKEN_INC:   return gen_inc_dec(code, depth, node->UnaryOp.Operand, true, Prefix);
-        case TOKEN_DEC:   return gen_inc_dec(code, depth, node->UnaryOp.Operand, false, Prefix);
+        case TOKEN_MINUS: return emit_negate(code, node, Operand);
+        case TOKEN_INC:   return emit_inc_dec(code, depth, node->UnaryOp.Operand, true, Prefix);
+        case TOKEN_DEC:   return emit_inc_dec(code, depth, node->UnaryOp.Operand, false, Prefix);
         default:          assert(false); break;
     }
 
     return Operand;
 }
 
-operand gen_call(ast_node *node, program_code *code, int depth) {
+operand emit_call(ast_node *node, program_code *code, int depth) {
     assert(node->Type == NODE_CALL);
 
     string Name = node->Call.FuncName->Ident.Name;
 
     if (node->Call.ArgCount > ArraySize(ParamRegisters)) {
-        gen_error("Haven't gotten to implementing stack arguments yet!");
+        emit_error("Haven't gotten to implementing stack arguments yet!");
         assert(false);
     }
 
-    operand EvaluatedArgs[6];
-
-    for (int i = 0; i < node->Call.ArgCount; i++) {
-        operand ArgI        = gen_expression(node->Call.Args[i], code, depth);
+    for (int i = node->Call.ArgCount - 1; i >= 0; i--) {
+        operand ArgI        = emit_expression(node->Call.Args[i], code, depth);
         int ExpectedArgSize = node->Call.FuncName->Ident.Sym->Function.Params[i]->Size;
 
         if (ArgI.Size > SIZE_64) {
-            gen_error("Haven't gotten to implementing this yet!");
+            emit_error("Haven't gotten to implementing this yet!");
             assert(false);
             continue;
         }
 
-        operand ScratchReg = scratch_register(ExpectedArgSize);
-        emit_mov(code, ScratchReg, ArgI);
-
-        EvaluatedArgs[i] = ScratchReg;
-    }
-
-    for (int i = 0; i < node->Call.ArgCount; i++) {
-        int ExpectedArgSize = node->Call.FuncName->Ident.Sym->Function.Params[i]->Size;
-        operand TargetReg   = Reg(ParamRegisters[i], ExpectedArgSize);
-        emit_mov(code, TargetReg, EvaluatedArgs[i]);
-    }
-
-    for (int i = node->Call.ArgCount - 1; i >= 0; i--) {
-        free_scratch_register(EvaluatedArgs[i]);
+        emit_mov(code, Reg(ParamRegisters[i], ExpectedArgSize), ArgI);
     }
 
     emit(code, (asm_instruction){.Op = ASM_CALL, .Dst = LabelOperand(Name)});
@@ -383,7 +411,7 @@ operand gen_call(ast_node *node, program_code *code, int depth) {
 }
 
 // Emit instructions and generate a resulting operand
-operand gen_expression(ast_node *node, program_code *code, int depth) {
+operand emit_expression(ast_node *node, program_code *code, int depth) {
     operand Result = {};
 
     switch (node->Type) {
@@ -423,15 +451,15 @@ operand gen_expression(ast_node *node, program_code *code, int depth) {
         }
 
         case NODE_BINARY_OP: {
-            return gen_binop(node, code, depth);
+            return emit_binop(node, code, depth);
         }
 
         case NODE_UNARY_OP: {
-            return gen_unaryop(node, code, depth);
+            return emit_unaryop(node, code, depth);
         }
 
         case NODE_CALL: {
-            return gen_call(node, code, depth);
+            return emit_call(node, code, depth);
         }
 
         default: {
@@ -448,7 +476,7 @@ int NextFreeRegister = 0;
 
 operand scratch_register(operand_size size) {
     if (NextFreeRegister >= ArraySize(ScratchRegisters)) {
-        gen_error("Expression too complex, ran out of scratch registers.");
+        emit_error("Expression too complex, ran out of scratch registers.");
         return (operand){};
     }
 
@@ -457,12 +485,12 @@ operand scratch_register(operand_size size) {
 
 void free_scratch_register(operand Op) {
     if (NextFreeRegister <= 0) {
-        gen_error("Compiler bug: Attempted to free a register when none are allocated.");
+        emit_error("Compiler bug: Attempted to free a register when none are allocated.");
         return;
     }
 
     if (ScratchRegisters[NextFreeRegister - 1] != Op.Reg.Register) {
-        gen_error("Compiler bug: Scratch registers were not freed in strict LIFO order.");
+        emit_error("Compiler bug: Scratch registers were not freed in strict LIFO order.");
         return;
     }
 
@@ -472,7 +500,7 @@ void free_scratch_register(operand Op) {
 void emit_mov(program_code *code, operand Dst, operand Src) {
     if (Src.Size == SIZE_NONE) Src.Size = Dst.Size;
 
-    if (Src.Reg.Register == Dst.Reg.Register) {
+    if (Src.Type == OPERAND_REG && Dst.Type == OPERAND_REG && Src.Reg.Register == Dst.Reg.Register) {
         if (Src.Size >= Dst.Size) return;
         if (Dst.Size == SIZE_64) return;
     }
@@ -499,11 +527,11 @@ void emit_mov(program_code *code, operand Dst, operand Src) {
     }
 }
 
-void gen_statement(ast_node *node, program_code *code, int depth) {
+void emit_statement(ast_node *node, program_code *code, int depth) {
     switch (node->Type) {
         case NODE_PROGRAM:
             for (int i = 0; i < node->Program.FunctionCount; i++) {
-                gen_statement(node->Program.Functions[i], code, depth);
+                emit_statement(node->Program.Functions[i], code, depth);
             }
             break;
         case NODE_FUNC_DEF: {
@@ -512,9 +540,11 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             code->CurrentFunction           = Name->Ident.Name;
             code->CurrentFunctionReturnSize = get_type_size(node->FuncDef.ReturnType->DataType.Type);
 
-            int local_size = Name->Ident.Sym->Size;
+            size_t local_size = Name->Ident.Sym->Size;
 
-            bool is_main = strncmp(Name->Ident.Name.Data, "main", 4) == 0;
+            size_t frame_size = local_size + total_param_bytes(Name->Ident.Sym);
+
+            bool is_main = string_equals(Name->Ident.Name, CSTR("main"));
 
             if (is_main) {
                 emit_label(code, CSTR("_start"));
@@ -522,9 +552,11 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
                 emit_function_label(code, Name->Ident.Name);
             }
 
-            emit_function_prologue(code, local_size);
+            emit_function_prologue(code, frame_size);
 
-            gen_statement(node->FuncDef.Body, code, depth + 1);
+            emit_spill_params(code, Name->Ident.Sym, local_size);
+
+            emit_statement(node->FuncDef.Body, code, depth + 1);
 
             if (is_main) {
                 emit_program_epilogue(code);
@@ -536,7 +568,7 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
         }
         case NODE_BLOCK: {
             for (int i = 0; i < node->Block.StatementCount; i++) {
-                gen_statement(node->Block.Statements[i], code, depth);
+                emit_statement(node->Block.Statements[i], code, depth);
             }
             break;
         }
@@ -546,15 +578,15 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
 
             switch (node->BinaryOp.Operation) {
                 case TOKEN_EQUALS: {
-                    operand Src = gen_expression(Right, code, depth);
-                    operand Dst = gen_expression(Left, code, depth);
+                    operand Src = emit_expression(Right, code, depth);
+                    operand Dst = emit_expression(Left, code, depth);
 
                     emit_mov(code, Dst, Src);
                     break;
                 }
                 default: {
-                    gen_error("Haven't implemented parsing for binary operation of type %s yet, sorry!",
-                              token_name(node->BinaryOp.Operation));
+                    emit_error("Haven't implemented parsing for binary operation of type %s yet, sorry!",
+                               token_name(node->BinaryOp.Operation));
                     break;
                 }
             }
@@ -562,11 +594,11 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
         }
         case NODE_UNARY_OP:
         case NODE_CALL:     {
-            gen_expression(node, code, depth);
+            emit_expression(node, code, depth);
             break;
         }
         case NODE_IF: {
-            operand Result = gen_expression(node->If.Condition, code, depth + 1);
+            operand Result = emit_expression(node->If.Condition, code, depth + 1);
 
             string L_Else = new_label(code);
 
@@ -574,13 +606,13 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
 
             emit_je(code, L_Else);
 
-            gen_statement(node->If.ThenBlock, code, depth + 1);
+            emit_statement(node->If.ThenBlock, code, depth + 1);
 
             if (node->If.ElseBlock) {
                 string L_End = new_label(code);
                 emit_jump(code, L_End);
                 emit_label(code, L_Else);
-                gen_statement(node->If.ElseBlock, code, depth + 1);
+                emit_statement(node->If.ElseBlock, code, depth + 1);
                 emit_label(code, L_End);
             } else {
                 emit_label(code, L_Else);
@@ -591,12 +623,12 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             string Start = emit_next_label(code);
             string End   = new_label(code);
 
-            operand Condition = gen_expression(node->While.Condition, code, depth + 1);
+            operand Condition = emit_expression(node->While.Condition, code, depth + 1);
 
             emit_test(code, Condition, Condition);
             emit_je(code, End);
 
-            gen_statement(node->While.Body, code, depth + 1);
+            emit_statement(node->While.Body, code, depth + 1);
 
             emit_jump(code, Start);
 
@@ -604,19 +636,19 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
             break;
         }
         case NODE_FOR: {
-            gen_statement(node->For.Init, code, depth + 1);
+            emit_statement(node->For.Init, code, depth + 1);
 
             string Start = emit_next_label(code);
             string End   = new_label(code);
 
-            operand Condition = gen_expression(node->For.Condition, code, depth + 1);
+            operand Condition = emit_expression(node->For.Condition, code, depth + 1);
 
             emit_test(code, Condition, Condition);
             emit_je(code, End);
 
-            gen_statement(node->For.Body, code, depth + 1);
+            emit_statement(node->For.Body, code, depth + 1);
 
-            gen_statement(node->For.Advance, code, depth + 1);
+            emit_statement(node->For.Advance, code, depth + 1);
 
             emit_jump(code, Start);
 
@@ -625,7 +657,7 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
         }
         case NODE_RETURN: {
             ast_node *Val   = node->Return.Value;
-            operand Operand = gen_expression(Val, code, depth);
+            operand Operand = emit_expression(Val, code, depth);
 
             // TODO: What if we return a struct (or float)?
             emit_mov(code, Reg(REG_RAX, code->CurrentFunctionReturnSize), Operand);
@@ -650,7 +682,7 @@ void gen_statement(ast_node *node, program_code *code, int depth) {
                 .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Offset = -Offset}
             };
 
-            operand Value = gen_expression(Init, code, depth);
+            operand Value = emit_expression(Init, code, depth);
 
             emit_mov(code, Mem, Value);
 
@@ -741,7 +773,7 @@ char *size_directive(operand_size size) {
 }
 
 void print_mem(memory_arena *Arena, FILE *out, operand op) {
-    fprintf(out, "%s [%s", size_directive(op.Size), register_name(Arena, op.Mem.Base, op.Size));
+    fprintf(out, "%s [%s", size_directive(op.Size), register_name(Arena, op.Mem.Base, SIZE_64));
     if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(Arena, op.Mem.Index, op.Size), op.Mem.Scale);
 
     int Off = op.Mem.Offset;
@@ -823,7 +855,7 @@ void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in) {
         default: {
             fprintf(out, "%s ", instruction_name(in->Op));
 
-            if (in->Op == ASM_SYSCALL || in->Op == ASM_RET || in->Op == ASM_CDQ) break;
+            if (in->Op == ASM_NOP || in->Op == ASM_SYSCALL || in->Op == ASM_RET || in->Op == ASM_CDQ) break;
 
             print_operand(Arena, out, in->Dst);
 
@@ -847,7 +879,7 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
     Code.InstructionArena = make_arena();
     Code.GeneralArena     = arena;
 
-    gen_statement(ast, &Code, 0);
+    emit_statement(ast, &Code, 0);
 
     asm_instruction *Instructions = (asm_instruction *)Code.InstructionArena.Data;
 
@@ -864,6 +896,7 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
     }
 
     free_arena(&AsmArena);
+    free_arena(&Code.InstructionArena);
 
     return Code;
 }
