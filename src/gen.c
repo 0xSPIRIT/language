@@ -260,10 +260,10 @@ bool expr_may_clobber_rax(ast_node *node) {
 }
 
 // The result is stored in the register that the return value points to (Rax)
-operand emit_binop(ast_node *node, program_code *code, int depth) {
+operand emit_binop(ast_node *node, program_code *code) {
     token_type Op = node->BinaryOp.Operation;
 
-    operand Left = emit_expression(node->BinaryOp.Left, code, depth);
+    operand Left = emit_expression(node->BinaryOp.Left, code);
 
     // If Left is stored in RAX, move it to a spill stack location so evaluating Right doesn't overwrite it.
     bool LeftSaved = false;
@@ -279,7 +279,7 @@ operand emit_binop(ast_node *node, program_code *code, int depth) {
         LeftSaved = true;
     }
 
-    operand Right = emit_expression(node->BinaryOp.Right, code, depth);
+    operand Right = emit_expression(node->BinaryOp.Right, code);
 
     operand Result;
 
@@ -339,8 +339,8 @@ operand emit_negate(program_code *code, ast_node *node, operand Operand) {
     return Operand;
 }
 
-operand emit_inc_dec(program_code *Code, int Depth, ast_node *Node, bool Increment, bool Prefix) {
-    operand Var = emit_expression(Node, Code, Depth);
+operand emit_inc_dec(program_code *Code, ast_node *Node, bool Increment, bool Prefix) {
+    operand Var = emit_expression(Node, Code);
 
     if (Var.Type == OPERAND_IMM) {
         emit_error("Can't ++ or -- an immediate value.");
@@ -362,23 +362,23 @@ operand emit_inc_dec(program_code *Code, int Depth, ast_node *Node, bool Increme
     return Prefix ? Var : Temp;
 }
 
-operand emit_unaryop(ast_node *node, program_code *code, int depth) {
+operand emit_unaryop(ast_node *node, program_code *code) {
     token_type Operation = node->UnaryOp.Operation;
-    operand Operand      = emit_expression(node->UnaryOp.Operand, code, depth);
+    operand Operand      = emit_expression(node->UnaryOp.Operand, code);
 
     bool Prefix = node->UnaryOp.First;
 
     switch (Operation) {
         case TOKEN_MINUS: return emit_negate(code, node, Operand);
-        case TOKEN_INC:   return emit_inc_dec(code, depth, node->UnaryOp.Operand, true, Prefix);
-        case TOKEN_DEC:   return emit_inc_dec(code, depth, node->UnaryOp.Operand, false, Prefix);
+        case TOKEN_INC:   return emit_inc_dec(code, node->UnaryOp.Operand, true, Prefix);
+        case TOKEN_DEC:   return emit_inc_dec(code, node->UnaryOp.Operand, false, Prefix);
         default:          assert(false); break;
     }
 
     return Operand;
 }
 
-operand emit_call(ast_node *node, program_code *code, int depth) {
+operand emit_call(ast_node *node, program_code *code) {
     assert(node->Type == NODE_CALL);
 
     string Name = node->Call.FuncName->Ident.Name;
@@ -389,7 +389,7 @@ operand emit_call(ast_node *node, program_code *code, int depth) {
     }
 
     for (int i = node->Call.ArgCount - 1; i >= 0; i--) {
-        operand ArgI        = emit_expression(node->Call.Args[i], code, depth);
+        operand ArgI        = emit_expression(node->Call.Args[i], code);
         int ExpectedArgSize = node->Call.FuncName->Ident.Sym->Function.Params[i]->Size;
 
         if (ArgI.Size > SIZE_64) {
@@ -411,7 +411,7 @@ operand emit_call(ast_node *node, program_code *code, int depth) {
 }
 
 // Emit instructions and generate a resulting operand
-operand emit_expression(ast_node *node, program_code *code, int depth) {
+operand emit_expression(ast_node *node, program_code *code) {
     operand Result = {};
 
     switch (node->Type) {
@@ -451,15 +451,15 @@ operand emit_expression(ast_node *node, program_code *code, int depth) {
         }
 
         case NODE_BINARY_OP: {
-            return emit_binop(node, code, depth);
+            return emit_binop(node, code);
         }
 
         case NODE_UNARY_OP: {
-            return emit_unaryop(node, code, depth);
+            return emit_unaryop(node, code);
         }
 
         case NODE_CALL: {
-            return emit_call(node, code, depth);
+            return emit_call(node, code);
         }
 
         default: {
@@ -527,11 +527,11 @@ void emit_mov(program_code *code, operand Dst, operand Src) {
     }
 }
 
-void emit_statement(ast_node *node, program_code *code, int depth) {
+void emit_statement(ast_node *node, program_code *code) {
     switch (node->Type) {
         case NODE_PROGRAM:
             for (int i = 0; i < node->Program.FunctionCount; i++) {
-                emit_statement(node->Program.Functions[i], code, depth);
+                emit_statement(node->Program.Functions[i], code);
             }
             break;
         case NODE_FUNC_DEF: {
@@ -556,7 +556,7 @@ void emit_statement(ast_node *node, program_code *code, int depth) {
 
             emit_spill_params(code, Name->Ident.Sym, local_size);
 
-            emit_statement(node->FuncDef.Body, code, depth + 1);
+            emit_statement(node->FuncDef.Body, code);
 
             if (is_main) {
                 emit_program_epilogue(code);
@@ -568,7 +568,7 @@ void emit_statement(ast_node *node, program_code *code, int depth) {
         }
         case NODE_BLOCK: {
             for (int i = 0; i < node->Block.StatementCount; i++) {
-                emit_statement(node->Block.Statements[i], code, depth);
+                emit_statement(node->Block.Statements[i], code);
             }
             break;
         }
@@ -578,8 +578,8 @@ void emit_statement(ast_node *node, program_code *code, int depth) {
 
             switch (node->BinaryOp.Operation) {
                 case TOKEN_EQUALS: {
-                    operand Src = emit_expression(Right, code, depth);
-                    operand Dst = emit_expression(Left, code, depth);
+                    operand Src = emit_expression(Right, code);
+                    operand Dst = emit_expression(Left, code);
 
                     emit_mov(code, Dst, Src);
                     break;
@@ -594,11 +594,11 @@ void emit_statement(ast_node *node, program_code *code, int depth) {
         }
         case NODE_UNARY_OP:
         case NODE_CALL:     {
-            emit_expression(node, code, depth);
+            emit_expression(node, code);
             break;
         }
         case NODE_IF: {
-            operand Result = emit_expression(node->If.Condition, code, depth + 1);
+            operand Result = emit_expression(node->If.Condition, code);
 
             string L_Else = new_label(code);
 
@@ -606,13 +606,13 @@ void emit_statement(ast_node *node, program_code *code, int depth) {
 
             emit_je(code, L_Else);
 
-            emit_statement(node->If.ThenBlock, code, depth + 1);
+            emit_statement(node->If.ThenBlock, code);
 
             if (node->If.ElseBlock) {
                 string L_End = new_label(code);
                 emit_jump(code, L_End);
                 emit_label(code, L_Else);
-                emit_statement(node->If.ElseBlock, code, depth + 1);
+                emit_statement(node->If.ElseBlock, code);
                 emit_label(code, L_End);
             } else {
                 emit_label(code, L_Else);
@@ -623,12 +623,12 @@ void emit_statement(ast_node *node, program_code *code, int depth) {
             string Start = emit_next_label(code);
             string End   = new_label(code);
 
-            operand Condition = emit_expression(node->While.Condition, code, depth + 1);
+            operand Condition = emit_expression(node->While.Condition, code);
 
             emit_test(code, Condition, Condition);
             emit_je(code, End);
 
-            emit_statement(node->While.Body, code, depth + 1);
+            emit_statement(node->While.Body, code);
 
             emit_jump(code, Start);
 
@@ -636,19 +636,19 @@ void emit_statement(ast_node *node, program_code *code, int depth) {
             break;
         }
         case NODE_FOR: {
-            emit_statement(node->For.Init, code, depth + 1);
+            emit_statement(node->For.Init, code);
 
             string Start = emit_next_label(code);
             string End   = new_label(code);
 
-            operand Condition = emit_expression(node->For.Condition, code, depth + 1);
+            operand Condition = emit_expression(node->For.Condition, code);
 
             emit_test(code, Condition, Condition);
             emit_je(code, End);
 
-            emit_statement(node->For.Body, code, depth + 1);
+            emit_statement(node->For.Body, code);
 
-            emit_statement(node->For.Advance, code, depth + 1);
+            emit_statement(node->For.Advance, code);
 
             emit_jump(code, Start);
 
@@ -657,7 +657,7 @@ void emit_statement(ast_node *node, program_code *code, int depth) {
         }
         case NODE_RETURN: {
             ast_node *Val   = node->Return.Value;
-            operand Operand = emit_expression(Val, code, depth);
+            operand Operand = emit_expression(Val, code);
 
             // TODO: What if we return a struct (or float)?
             emit_mov(code, Reg(REG_RAX, code->CurrentFunctionReturnSize), Operand);
@@ -682,7 +682,7 @@ void emit_statement(ast_node *node, program_code *code, int depth) {
                 .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Offset = -Offset}
             };
 
-            operand Value = emit_expression(Init, code, depth);
+            operand Value = emit_expression(Init, code);
 
             emit_mov(code, Mem, Value);
 
@@ -879,7 +879,7 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
     Code.InstructionArena = make_arena();
     Code.GeneralArena     = arena;
 
-    emit_statement(ast, &Code, 0);
+    emit_statement(ast, &Code);
 
     asm_instruction *Instructions = (asm_instruction *)Code.InstructionArena.Data;
 

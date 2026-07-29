@@ -137,7 +137,7 @@ typedef struct {
 program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast);
 void free_program_code(program_code *program);
 void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in);
-operand emit_expression(ast_node *node, program_code *code, int depth);
+operand emit_expression(ast_node *node, program_code *code);
 operand scratch_register(operand_size size);
 void free_scratch_register(operand Op);
 void emit_mov(program_code *code, operand Dst, operand Src);
