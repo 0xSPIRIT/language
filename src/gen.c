@@ -1,6 +1,7 @@
 #include "gen.h"
 
 #include <assert.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <string.h>
 
@@ -30,6 +31,17 @@ void emit_error(const char *format, ...) {
 
 void emit_count(program_code *code, asm_instruction *instructions, int count) {
     asm_instruction *Ptr = arena_push(&code->InstructionArena, count * sizeof(asm_instruction));
+
+    // Debug
+    /*
+    for (int i = 0; i < count; i++) {
+        asm_instruction Instr = instructions[i];
+
+        if (Instr.Op == ASM_MOV && Instr.Dst.Type == OPERAND_REG && Instr.Dst.Reg.Register == REG_R10) {
+            raise(SIGTRAP);
+        }
+    }
+    */
 
     if (Ptr) {
         memcpy(Ptr, instructions, count * sizeof(asm_instruction));
@@ -101,7 +113,11 @@ void emit_function_prologue(program_code *code, size_t frame_size) {
         {.Op = ASM_SUB, .Dst = Rsp, .Src = Imm(AlignedSize)},
     };
 
-    emit_count(code, Instructions, ArraySize(Instructions));
+    int Count = ArraySize(Instructions);
+
+    if (AlignedSize == 0) Count--;
+
+    emit_count(code, Instructions, Count);
 }
 
 string function_end_label(program_code *code) {
@@ -216,6 +232,11 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
         default:           assert(false); break;
     }
 
+    if (Op == TOKEN_PLUS || Op == TOKEN_MINUS) {
+        if (Left.Type == OPERAND_IMM && Left.Imm.Value == 0) return (operand){};
+        if (Right.Type == OPERAND_IMM && Right.Imm.Value == 0) return (operand){};
+    }
+
     bool UsedScratch = false;
     operand Tmp;
 
@@ -269,10 +290,10 @@ operand emit_binop(ast_node *node, program_code *code) {
     bool LeftSaved = false;
     operand SafeLeft;
 
-    // TODO: Using scratch registers here is not correct. Use spill space
-    //       on the stack frame instead, OR use callee-saved registers.
-
     if (Left.Type == OPERAND_REG && Left.Reg.Register == REG_RAX && expr_may_clobber_rax(node->BinaryOp.Right)) {
+        // TODO: Implement callee-saved regsiters, because using scratch registers here
+        //       is not correct, and may be clobbered.
+
         SafeLeft = scratch_register(Left.Size);
         emit_mov(code, SafeLeft, Left);
         Left      = SafeLeft;
