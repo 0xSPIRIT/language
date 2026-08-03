@@ -657,6 +657,9 @@ ast_node **get_params(parser *p, int *param_count) {
 }
 
 void move_to_end_of_block(parser *p) {
+    printf("%d\n", peek(p)->Type);
+    if (peek(p)->Type == TOKEN_END_STATEMENT) return;
+
     assert(peek(p)->Type == TOKEN_OPEN_SCOPE);
 
     int Balance = 0;
@@ -691,9 +694,13 @@ ast_node *parse_function(parser *p) {
     ast_node *ReturnType = parse_type(p);
     token *FuncName      = consume(p, TOKEN_IDENTIFIER);
 
+    string_print(FuncName->String);
+
     ast_node **Params = get_params(p, &ParamCount);
-    ast_node *Body    = parse_block(p);
+    ast_node *Body    = peek(p)->Type == TOKEN_END_STATEMENT ? nullptr : parse_block(p);
     ast_node *Root    = node(p, NODE_FUNC_DEF);
+
+    if (!Body) advance(p);
 
     Root->FuncDef.Name       = identifier(p, FuncName->String);
     Root->FuncDef.ReturnType = ReturnType;
@@ -711,7 +718,7 @@ int get_top_level_function_count(parser *p) {
     do {
         if (is_function(p)) {
             Count++;
-            while (has_next(p) && advance(p)->Type != TOKEN_OPEN_SCOPE);
+            while (has_next(p) && (peek(p)->Type != TOKEN_OPEN_SCOPE || peek(p)->Type == TOKEN_END_STATEMENT)) advance(p);
             back(p);
             move_to_end_of_block(p);
         } else {
@@ -973,6 +980,8 @@ void print_at(parser *p) {
 }
 
 void _print_tree(ast_node *ast, const char *message, int depth, int *last_child_flags) {
+    if (!ast) return;
+
     printf(FG_COLOR(236));
 
     for (int i = 0; i < depth - 1; i++) {

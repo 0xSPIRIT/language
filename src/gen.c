@@ -15,7 +15,10 @@
 #define Rbp (Reg(REG_RBP, SIZE_64))
 #define Rsp (Reg(REG_RSP, SIZE_64))
 
-constexpr register_id ParamRegisters[] = {REG_RDI, REG_RSI, REG_RDX, REG_RCX, REG_R8, REG_R9};
+constexpr register_id ParamRegisters[]   = {REG_RDI, REG_RSI, REG_RDX, REG_RCX, REG_R8, REG_R9};
+constexpr register_id ScratchRegisters[] = {REG_RBX, REG_R12, REG_R13, REG_R14, REG_R15};
+
+int NextFreeRegister = 0;
 
 void emit_error(const char *format, ...) {
     va_list Args;
@@ -104,7 +107,8 @@ size_t total_param_bytes(symbol *FuncSym) {
     return Result;
 }
 
-void emit_function_prologue(program_code *code, size_t frame_size) {
+asm_instruction *emit_function_prologue(program_code *code, size_t frame_size) {
+    // TODO: Account for 128 byte redzone?
     size_t AlignedSize = 16 * (frame_size / 16 + (frame_size % 16 > 0));
 
     asm_instruction Instructions[] = {
@@ -118,6 +122,13 @@ void emit_function_prologue(program_code *code, size_t frame_size) {
     if (AlignedSize == 0) Count--;
 
     emit_count(code, Instructions, Count);
+
+    asm_instruction *Result = ((asm_instruction *)code->InstructionArena.Data) + code->InstructionCount;
+
+    asm_instruction ScratchPushes[ArraySize(ScratchRegisters)] = {};
+    emit_count(code, ScratchPushes, ArraySize(ScratchPushes));
+
+    return Result;
 }
 
 string function_end_label(program_code *code) {
@@ -169,14 +180,12 @@ void emit_cmp(program_code *code, operand Left, operand Right) {
         operand Tmp = scratch_register(Left.Size);
         emit_mov(code, Tmp, Left);
         emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Tmp, .Src = Right});
-        free_scratch_register(Tmp);
     } else {
         emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Left, .Src = Right});
     }
 }
 
 void emit_test(program_code *code, operand A, operand B) {
-    bool UsedScratch = false;
     operand Tmp;
 
     if (A.Type != OPERAND_REG) {
@@ -184,13 +193,9 @@ void emit_test(program_code *code, operand A, operand B) {
         emit_mov(code, Tmp, A);
         A = Tmp;
         B = Tmp;
-
-        UsedScratch = true;
     }
 
     emit(code, (asm_instruction){.Op = ASM_TEST, .Dst = A, .Src = B});
-
-    if (UsedScratch) free_scratch_register(Tmp);
 }
 
 void emit_je(program_code *code, string Label) {
@@ -237,7 +242,6 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
         if (Right.Type == OPERAND_IMM && Right.Imm.Value == 0) return (operand){};
     }
 
-    bool UsedScratch = false;
     operand Tmp;
 
     if (MathOp == ASM_IDIV) {
@@ -248,8 +252,6 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
             Tmp = scratch_register(Size);
             emit_mov(code, Tmp, Right);
             Right = Tmp;
-
-            UsedScratch = true;
         }
 
         emit(code, (asm_instruction){.Op = ASM_IDIV, .Dst = Right});
@@ -258,14 +260,10 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
             Tmp = scratch_register(Size);
             emit_mov(code, Tmp, Right);
             Right = Tmp;
-
-            UsedScratch = true;
         }
         emit_mov(code, Reg(REG_RAX, Size), Left);
         emit(code, (asm_instruction){.Op = MathOp, .Dst = Reg(REG_RAX, Size), .Src = Right});
     }
-
-    if (UsedScratch) free_scratch_register(Tmp);
 
     return Reg(REG_RAX, Size);
 }
@@ -286,18 +284,14 @@ operand emit_binop(ast_node *node, program_code *code) {
 
     operand Left = emit_expression(node->BinaryOp.Left, code);
 
-    // If Left is stored in RAX, move it to a spill stack location so evaluating Right doesn't overwrite it.
-    bool LeftSaved = false;
     operand SafeLeft;
 
     if (Left.Type == OPERAND_REG && Left.Reg.Register == REG_RAX && expr_may_clobber_rax(node->BinaryOp.Right)) {
-        // TODO: Implement callee-saved regsiters, because using scratch registers here
-        //       is not correct, and may be clobbered.
+        // TODO: because using scratch registers here is not correct, and may be clobbered.
 
         SafeLeft = scratch_register(Left.Size);
         emit_mov(code, SafeLeft, Left);
-        Left      = SafeLeft;
-        LeftSaved = true;
+        Left = SafeLeft;
     }
 
     operand Right = emit_expression(node->BinaryOp.Right, code);
@@ -338,10 +332,6 @@ operand emit_binop(ast_node *node, program_code *code) {
             Result = (operand){};
             break;
         }
-    }
-
-    if (LeftSaved) {
-        free_scratch_register(SafeLeft);
     }
 
     return Result;
@@ -491,10 +481,6 @@ operand emit_expression(ast_node *node, program_code *code) {
     return Result;
 }
 
-register_id ScratchRegisters[] = {REG_R10, REG_R11, REG_R12, REG_R13, REG_R14, REG_R15, REG_RBX};
-
-int NextFreeRegister = 0;
-
 operand scratch_register(operand_size size) {
     if (NextFreeRegister >= ArraySize(ScratchRegisters)) {
         emit_error("Expression too complex, ran out of scratch registers.");
@@ -504,18 +490,13 @@ operand scratch_register(operand_size size) {
     return Reg(ScratchRegisters[NextFreeRegister++], size);
 }
 
-void free_scratch_register(operand Op) {
-    if (NextFreeRegister <= 0) {
-        emit_error("Compiler bug: Attempted to free a register when none are allocated.");
-        return;
+void emit_free_all_scratch_registers(program_code *code) {
+    for (int i = NextFreeRegister - 1; i >= 0; i--) {
+        asm_instruction Instr = {.Op = ASM_POP, .Dst = Reg(ScratchRegisters[i], SIZE_64)};
+        emit(code, Instr);
     }
 
-    if (ScratchRegisters[NextFreeRegister - 1] != Op.Reg.Register) {
-        emit_error("Compiler bug: Scratch registers were not freed in strict LIFO order.");
-        return;
-    }
-
-    NextFreeRegister--;
+    NextFreeRegister = 0;
 }
 
 void emit_mov(program_code *code, operand Dst, operand Src) {
@@ -542,13 +523,40 @@ void emit_mov(program_code *code, operand Dst, operand Src) {
         operand Tmp = scratch_register(Dst.Size);
         emit(code, (asm_instruction){.Op = Op, .Dst = Tmp, .Src = Src});
         emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Tmp});
-        free_scratch_register(Tmp);
     } else {
         emit(code, (asm_instruction){.Op = Op, .Dst = Dst, .Src = Src});
     }
 }
 
+void emit_var_decl(program_code *code, ast_node *node) {
+    for (int i = 0; i < node->VarDecl.ChildDeclsCount; i++) {
+        emit_var_decl(code, node->VarDecl.ChildDecls[i]);
+    }
+
+    ast_node *Init = node->VarDecl.Init;
+
+    if (!Init) return;
+
+    ast_node *Ident = node->VarDecl.Name;
+    symbol *Sym     = Ident->Ident.Sym;
+
+    int Offset = Sym->StackOffset;
+
+    // Variable is stored at [rbp - Offset]
+    operand Mem = {
+        .Type = OPERAND_MEM,
+        .Size = Sym->Size,
+        .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Offset = -Offset}
+    };
+
+    operand Value = emit_expression(Init, code);
+
+    emit_mov(code, Mem, Value);
+}
+
 void emit_statement(ast_node *node, program_code *code) {
+    if (!node) return;
+
     switch (node->Type) {
         case NODE_PROGRAM:
             for (int i = 0; i < node->Program.FunctionCount; i++) {
@@ -556,6 +564,8 @@ void emit_statement(ast_node *node, program_code *code) {
             }
             break;
         case NODE_FUNC_DEF: {
+            if (!node->FuncDef.Body) return; // Forward declaration
+
             ast_node *Name = node->FuncDef.Name;
 
             code->CurrentFunction           = Name->Ident.Name;
@@ -573,11 +583,17 @@ void emit_statement(ast_node *node, program_code *code) {
                 emit_function_label(code, Name->Ident.Name);
             }
 
-            emit_function_prologue(code, frame_size);
+            asm_instruction *Scratch = emit_function_prologue(code, frame_size);
 
             emit_spill_params(code, Name->Ident.Sym, local_size);
 
             emit_statement(node->FuncDef.Body, code);
+
+            for (int i = 0; i < NextFreeRegister; i++) {
+                Scratch[i] = (asm_instruction){.Op = ASM_PUSH, .Dst = Reg(ScratchRegisters[i], SIZE_64)};
+            }
+
+            emit_free_all_scratch_registers(code);
 
             if (is_main) {
                 emit_program_epilogue(code);
@@ -687,26 +703,7 @@ void emit_statement(ast_node *node, program_code *code) {
             break;
         }
         case NODE_VAR_DECL: {
-            ast_node *Init = node->VarDecl.Init;
-
-            if (!Init) break;
-
-            ast_node *Ident = node->VarDecl.Name;
-            symbol *Sym     = Ident->Ident.Sym;
-
-            int Offset = Sym->StackOffset;
-
-            // Variable is stored at [rbp - Offset]
-            operand Mem = {
-                .Type = OPERAND_MEM,
-                .Size = Sym->Size,
-                .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Offset = -Offset}
-            };
-
-            operand Value = emit_expression(Init, code);
-
-            emit_mov(code, Mem, Value);
-
+            emit_var_decl(code, node);
             break;
         }
         case NODE_STRUCT: break;
@@ -726,7 +723,7 @@ char *register_name(memory_arena *Arena, register_id Reg, operand_size Size) {
         case 2:  Index = 1; break;
         case 4:  Index = 2; break;
         case 8:  Index = 3; break;
-        default: assert(false); break;
+        default: printf("Size is incorrect %d\n", Size); assert(false); break;
     }
 
     static const char *RegNames[][4] = {
@@ -822,6 +819,7 @@ void print_operand(memory_arena *Arena, FILE *out, operand op) {
 
 char *instruction_name(asm_opcode Opcode) {
     switch (Opcode) {
+        case ASM_INVALID: return "";
         case ASM_LABEL:   return "label";
         case ASM_MOV:     return "mov";
         case ASM_LEA:     return "lea";
@@ -910,6 +908,8 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
 
     for (int i = 0; i < Code.InstructionCount; i++) {
         asm_instruction *Instr = Instructions + i;
+
+        if (Instr->Op == 0) continue;
 
         if (Instr->Op != ASM_LABEL) fprintf(out, "  ");
 

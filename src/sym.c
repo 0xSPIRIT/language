@@ -1,6 +1,7 @@
 #include "sym.h"
 
 #include <assert.h>
+#include <signal.h>
 #include <string.h>
 
 #include "parser.h"
@@ -224,13 +225,16 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes
 
 // param_index should be -1 if it's not a parameter. Returns new param_index
 int resolve_var_decl(memory_arena *arena, scopes *Scopes, ast_node *VarDecl, int param_index) {
-    symbol Sym = make_var_decl_symbol_and_resolve_type(arena, Scopes, VarDecl, param_index++);
+    symbol Sym = make_var_decl_symbol_and_resolve_type(arena, Scopes, VarDecl, param_index);
+
+    if (param_index != -1) param_index++;
 
     _resolve_symbols(arena, VarDecl->VarDecl.Name, Scopes, Sym, false);
     _resolve_symbols(arena, VarDecl->VarDecl.Init, Scopes, (symbol){}, false);
 
     for (int i = 0; i < VarDecl->VarDecl.ChildDeclsCount; i++) {
-        resolve_var_decl(arena, Scopes, VarDecl->VarDecl.ChildDecls[i], param_index++);
+        resolve_var_decl(arena, Scopes, VarDecl->VarDecl.ChildDecls[i], param_index);
+        if (param_index != -1) param_index++;
     }
 
     return param_index;
@@ -251,7 +255,7 @@ symbol **resolve_parameters(memory_arena *arena, ast_node *func, scopes *Scopes)
 
     return Result;
 }
-//
+
 // Returns size of all locals in the function.
 int resolve_stack_offsets(ast_node *Stmt, int Offset) {
     if (!Stmt) return Offset;
@@ -270,20 +274,20 @@ int resolve_stack_offsets(ast_node *Stmt, int Offset) {
 
             Offset += Sym->Size;
             Sym->StackOffset = Offset;
+
+            for (int i = 0; i < Stmt->VarDecl.ChildDeclsCount; i++) {
+                Offset = resolve_stack_offsets(Stmt->VarDecl.ChildDecls[i], Offset);
+            }
             break;
         }
 
         case NODE_FOR: {
-            // 1. Resolve variables declared in the loop initialization: for(int i = 0; ...)
             Offset = resolve_stack_offsets(Stmt->For.Init, Offset);
-
-            // 2. Resolve variables declared inside the loop body block
             Offset = resolve_stack_offsets(Stmt->For.Body, Offset);
             break;
         }
 
         case NODE_IF: {
-            // Resolve 'then' block and the optional 'else' block
             Offset = resolve_stack_offsets(Stmt->If.ThenBlock, Offset);
             Offset = resolve_stack_offsets(Stmt->If.ElseBlock, Offset);
             break;
@@ -295,8 +299,6 @@ int resolve_stack_offsets(ast_node *Stmt, int Offset) {
         }
 
         default: {
-            // For general expressions or statements that don't declare variables,
-            // do nothing and just pass the offset along.
             break;
         }
     }
@@ -462,12 +464,11 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbo
             break;
         }
         case NODE_FOR: {
-            _resolve_symbols(arena, node->For.Body, Scopes, (symbol){}, false);
-
             push_scope(arena, Scopes);
 
             _resolve_symbols(arena, node->For.Init, Scopes, (symbol){}, false);
             _resolve_symbols(arena, node->For.Condition, Scopes, (symbol){}, false);
+            _resolve_symbols(arena, node->For.Body, Scopes, (symbol){}, false);
             _resolve_symbols(arena, node->For.Advance, Scopes, (symbol){}, false);
 
             pop_scope(Scopes);

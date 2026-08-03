@@ -1,3 +1,5 @@
+int test(char a, char b);
+
 int main() {
-    int a = 0;
+    return 0;
 }

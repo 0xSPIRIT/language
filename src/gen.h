@@ -9,6 +9,7 @@
 #define MAX_VARS 16384
 
 typedef enum {
+    ASM_INVALID,
     ASM_LABEL,
     ASM_MOV,
     ASM_LEA,
