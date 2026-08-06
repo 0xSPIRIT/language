@@ -45,14 +45,14 @@ int main(int argc, char **argv) {
 
         int result;
 
-        printf("Assembling...\n");
+        printf("\nAssembling...\n");
         result = system("as --gdwarf-5 -o test.o test.s");
 
         if (!result) {
             printf("Assembler successful.\n");
 
             printf("Linking...\n");
-            result = system("ld -o test test.o");
+            result = system("gcc -o test test.o");
 
             if (!result) {
                 printf("Compilation completed. Output: ./test\n");

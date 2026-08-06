@@ -416,6 +416,9 @@ operand emit_call(ast_node *node, program_code *code) {
 
     int ReturnSize = get_type_size(node->Call.FuncName->Ident.Sym->Function.ReturnType);
 
+    // void
+    if (ReturnSize == 0) return (operand){};
+
     assert(ReturnSize > 0);
 
     return Reg(REG_RAX, ReturnSize);
@@ -564,7 +567,7 @@ void emit_statement(ast_node *node, program_code *code) {
             }
             break;
         case NODE_FUNC_DEF: {
-            if (!node->FuncDef.Body) return; // Forward declaration
+            if (!node->FuncDef.Body) return;  // Forward declaration
 
             ast_node *Name = node->FuncDef.Name;
 
@@ -577,11 +580,14 @@ void emit_statement(ast_node *node, program_code *code) {
 
             bool is_main = string_equals(Name->Ident.Name, CSTR("main"));
 
+            /*
             if (is_main) {
                 emit_label(code, CSTR("_start"));
             } else {
-                emit_function_label(code, Name->Ident.Name);
-            }
+            */
+            emit_function_label(code, Name->Ident.Name);
+            /*
+        } */
 
             asm_instruction *Scratch = emit_function_prologue(code, frame_size);
 
@@ -719,11 +725,14 @@ char *register_name(memory_arena *Arena, register_id Reg, operand_size Size) {
     int Index;
 
     switch (Size) {
-        case 1:  Index = 0; break;
-        case 2:  Index = 1; break;
-        case 4:  Index = 2; break;
-        case 8:  Index = 3; break;
-        default: printf("Size is incorrect %d\n", Size); assert(false); break;
+        case 1: Index = 0; break;
+        case 2: Index = 1; break;
+        case 4: Index = 2; break;
+        case 8: Index = 3; break;
+        default:
+            printf("Size is incorrect %d\n", Size);
+            assert(false);
+            break;
     }
 
     static const char *RegNames[][4] = {
@@ -902,7 +911,9 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
 
     asm_instruction *Instructions = (asm_instruction *)Code.InstructionArena.Data;
 
-    fprintf(out, ".intel_syntax noprefix\n.global _start\n\n");
+    fprintf(out, ".intel_syntax noprefix\n\n");
+
+    fprintf(out, ".section .text\n.global main\n\n");
 
     memory_arena AsmArena = make_arena();
 
@@ -915,6 +926,8 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
 
         print_instruction(&AsmArena, out, Instr);
     }
+
+    fputs("\n.section .note.GNU-stack,\"\",@progbits\n", out);
 
     free_arena(&AsmArena);
     free_arena(&Code.InstructionArena);

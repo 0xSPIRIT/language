@@ -657,7 +657,6 @@ ast_node **get_params(parser *p, int *param_count) {
 }
 
 void move_to_end_of_block(parser *p) {
-    printf("%d\n", peek(p)->Type);
     if (peek(p)->Type == TOKEN_END_STATEMENT) return;
 
     assert(peek(p)->Type == TOKEN_OPEN_SCOPE);
@@ -694,8 +693,6 @@ ast_node *parse_function(parser *p) {
     ast_node *ReturnType = parse_type(p);
     token *FuncName      = consume(p, TOKEN_IDENTIFIER);
 
-    string_print(FuncName->String);
-
     ast_node **Params = get_params(p, &ParamCount);
     ast_node *Body    = peek(p)->Type == TOKEN_END_STATEMENT ? nullptr : parse_block(p);
     ast_node *Root    = node(p, NODE_FUNC_DEF);
@@ -718,8 +715,7 @@ int get_top_level_function_count(parser *p) {
     do {
         if (is_function(p)) {
             Count++;
-            while (has_next(p) && (peek(p)->Type != TOKEN_OPEN_SCOPE || peek(p)->Type == TOKEN_END_STATEMENT)) advance(p);
-            back(p);
+            while (has_next(p) && (peek(p)->Type != TOKEN_OPEN_SCOPE && peek(p)->Type != TOKEN_END_STATEMENT)) advance(p);
             move_to_end_of_block(p);
         } else {
             advance(p);

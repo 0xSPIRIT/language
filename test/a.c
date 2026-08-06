@@ -1,5 +1,8 @@
-int test(char a, char b);
+int abs(int value);
+void exit(int status);
 
 int main() {
-    return 0;
+    exit(100);
+    int result = abs(-10);
+    return result;
 }

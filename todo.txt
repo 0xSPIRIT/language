@@ -1,1 +1,1 @@
-[ ] Scratch registers: push and pop
+[ ] String literals as *char
