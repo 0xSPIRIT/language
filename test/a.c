@@ -1,11 +1,11 @@
 int puts(*char s);
 
 int main() {
-    *char string = "Hello everybody my name is Markiplier!";
+    int i = 0;
 
-    for (int i = 0; i < 10; i++) {
-        puts(string + i);
+    if (++i > 0) {
+        return 67;
+    } else {
+        return 69;
     }
-
-    return 67;
 }
