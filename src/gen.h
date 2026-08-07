@@ -7,6 +7,7 @@
 
 #define MAX_FUNCTIONS 1024
 #define MAX_VARS 16384
+#define MAX_STRING_LIT 16384
 
 typedef enum {
     ASM_INVALID,
@@ -71,6 +72,7 @@ typedef enum {
     REG_RDI,
     REG_RBP,
     REG_RSP,
+    REG_RIP,
     REG_R8,
     REG_R9,
     REG_R10,
@@ -80,6 +82,21 @@ typedef enum {
     REG_R14,
     REG_R15,
 } register_id;
+
+typedef enum {
+    DISPLACEMENT_NONE,
+    DISPLACEMENT_CONSTANT,
+    DISPLACEMENT_LABEL,
+} displacement_type;
+
+typedef struct {
+    displacement_type Type;
+
+    union {
+        int32_t Value;
+        string Label;
+    };
+} displacement;
 
 typedef struct {
     operand_type Type;
@@ -95,11 +112,16 @@ typedef struct {
         } Imm;
 
         struct {
+            bool IsAddress; // If true, LEA, otherwise MOV
             register_id Base;
             register_id Index;
             int Scale;
-            int32_t Offset;
+            displacement Displacement;
         } Mem;
+
+        struct {
+            string Label;
+        } StringLit;
 
         struct {
             string Name;
@@ -112,12 +134,18 @@ typedef struct {
     operand Dst, Src;
 } asm_instruction;
 
+typedef enum {
+    RODATA_STRING_LIT,
+} rodata_entry_type;
+
 typedef struct {
+    rodata_entry_type Type;
     string Label;
-    uint8_t *Data;
-    size_t Size;
-    bool ReadOnly;
-} data_entry;
+
+    union {
+        string StringLit;
+    };
+} rodata_entry;
 
 typedef struct {
     memory_arena InstructionArena;
@@ -126,13 +154,14 @@ typedef struct {
     string CurrentFunction;
     operand_size CurrentFunctionReturnSize;
 
+    rodata_entry *RodataEntries;
+    int RodataEntryCount;
+
     size_t InstructionCount;
 
     int Label;
+    int CurrentRodataLabel;
     string CurrentBreakLabel;
-
-    data_entry *DataEntries;
-    size_t DataEntryCount;
 } program_code;
 
 program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast);
@@ -141,4 +170,4 @@ void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in);
 operand emit_expression(ast_node *node, program_code *code);
 operand scratch_register(operand_size size);
 void free_scratch_register(operand Op);
-void emit_mov(program_code *code, operand Dst, operand Src);
+void emit_move(program_code *code, operand Dst, operand Src);

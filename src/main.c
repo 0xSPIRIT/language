@@ -28,10 +28,11 @@ int main(int argc, char **argv) {
 
         resolve_symbols(Tree);
 
-        print_tree(Tree);
+        // print_tree(Tree);
 
+        printf("-- input code --\n");
         string_print(Code);
-        printf("\n\n");
+        printf("-- end code --\n\n");
 
         FILE *Out;
 
@@ -41,7 +42,9 @@ int main(int argc, char **argv) {
 
         fclose(Out);
 
+        printf("-- generated assembly --\n");
         system("cat test.s");
+        printf("-- end assembly --\n");
 
         int result;
 

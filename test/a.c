@@ -1,8 +1,11 @@
-int abs(int value);
-void exit(int status);
+int puts(*char s);
 
 int main() {
-    exit(100);
-    int result = abs(-10);
-    return result;
+    *char string = "Hello everybody my name is Markiplier!";
+
+    for (int i = 0; i < 10; i++) {
+        puts(string + i);
+    }
+
+    return 67;
 }

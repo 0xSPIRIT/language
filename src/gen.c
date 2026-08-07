@@ -15,6 +15,11 @@
 #define Rbp (Reg(REG_RBP, SIZE_64))
 #define Rsp (Reg(REG_RSP, SIZE_64))
 
+#define ConstDisplacement(disp) \
+    (displacement) { .Type = DISPLACEMENT_CONSTANT, .Value = (disp) }
+#define LabelDisplacement(label) \
+    (displacement) { .Type = DISPLACEMENT_LABEL, .Label = (label) }
+
 constexpr register_id ParamRegisters[]   = {REG_RDI, REG_RSI, REG_RDX, REG_RCX, REG_R8, REG_R9};
 constexpr register_id ScratchRegisters[] = {REG_RBX, REG_R12, REG_R13, REG_R14, REG_R15};
 
@@ -90,10 +95,12 @@ void emit_spill_params(program_code *code, symbol *FuncSym, size_t local_size) {
         Param->Section     = SECTION_STACK;
 
         operand Dst = {
-            .Type = OPERAND_MEM, .Size = Param->Size, .Mem = {.Base = REG_RBP, .Offset = -Param->StackOffset}
+            .Type = OPERAND_MEM,
+            .Size = Param->Size,
+            .Mem  = {.Base = REG_RBP, .Displacement = ConstDisplacement(-Param->StackOffset)}
         };
 
-        emit_mov(code, Dst, Reg(ParamRegisters[i], Param->Size));
+        emit_move(code, Dst, Reg(ParamRegisters[i], Param->Size));
     }
 }
 
@@ -133,8 +140,31 @@ asm_instruction *emit_function_prologue(program_code *code, size_t frame_size) {
 
 string function_end_label(program_code *code) {
     string FunctionName = code->CurrentFunction;
-    string Name         = string_make(code->GeneralArena, FunctionName.Length + 6);
-    Name.Length         = sprintf(Name.Data, "Lend_%.*s", (int)FunctionName.Length, FunctionName.Data);
+
+    string Name = string_make(code->GeneralArena, FunctionName.Length + 6);
+    Name.Length = sprintf(Name.Data, "Lend_%.*s", (int)FunctionName.Length, FunctionName.Data);
+    return Name;
+}
+
+// Searches if the entry already exists, and returns that. Otherwise Returns entry label
+string push_rodata_entry(program_code *code, rodata_entry Entry) {
+    if (Entry.Type == RODATA_STRING_LIT) {
+        for (int i = 0; i < code->RodataEntryCount; i++) {
+            rodata_entry *E = code->RodataEntries + i;
+
+            if (E->Type == RODATA_STRING_LIT && string_equals(Entry.StringLit, E->StringLit)) {
+                return E->Label;
+            }
+        }
+    }
+
+    string Name = string_make(code->GeneralArena, 8);
+    Name.Length = sprintf(Name.Data, "LS%d", ++code->RodataEntryCount);
+
+    Entry.Label = Name;
+
+    code->RodataEntries[code->RodataEntryCount - 1] = Entry;
+
     return Name;
 }
 
@@ -178,7 +208,7 @@ void emit_cmp(program_code *code, operand Left, operand Right) {
 
     if (Left.Type == OPERAND_MEM && Right.Type == OPERAND_MEM) {
         operand Tmp = scratch_register(Left.Size);
-        emit_mov(code, Tmp, Left);
+        emit_move(code, Tmp, Left);
         emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Tmp, .Src = Right});
     } else {
         emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Left, .Src = Right});
@@ -190,7 +220,7 @@ void emit_test(program_code *code, operand A, operand B) {
 
     if (A.Type != OPERAND_REG) {
         Tmp = scratch_register(A.Size);
-        emit_mov(code, Tmp, A);
+        emit_move(code, Tmp, A);
         A = Tmp;
         B = Tmp;
     }
@@ -222,6 +252,19 @@ operand emit_comparison(program_code *code, token_type Op, operand Left, operand
     return Reg(REG_RAX, SIZE_32);
 }
 
+operand get_string_lit_operand(program_code *code, string Label) {
+    return (operand){
+        .Type = OPERAND_MEM, .Mem = {.IsAddress = true, .Base = REG_RIP, .Displacement = LabelDisplacement(Label)}
+    };
+}
+
+void emit_lea(program_code *code, operand DstReg, operand SrcMem) {
+    assert(DstReg.Type == OPERAND_REG);
+    assert(SrcMem.Type == OPERAND_MEM);
+
+    emit(code, (asm_instruction){.Op = ASM_LEA, .Dst = DstReg, .Src = SrcMem});
+}
+
 operand emit_math(program_code *code, token_type Op, operand Left, operand Right) {
     int Size = Max(Left.Size, Right.Size);
 
@@ -245,12 +288,12 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
     operand Tmp;
 
     if (MathOp == ASM_IDIV) {
-        emit_mov(code, Reg(REG_RAX, Size), Left);
+        emit_move(code, Reg(REG_RAX, Size), Left);
         emit(code, (asm_instruction){.Op = ASM_CDQ});
 
         if (Right.Type == OPERAND_IMM) {
             Tmp = scratch_register(Size);
-            emit_mov(code, Tmp, Right);
+            emit_move(code, Tmp, Right);
             Right = Tmp;
         }
 
@@ -258,10 +301,10 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
     } else {
         if (Right.Type == OPERAND_REG && Right.Reg.Register == REG_RAX) {
             Tmp = scratch_register(Size);
-            emit_mov(code, Tmp, Right);
+            emit_move(code, Tmp, Right);
             Right = Tmp;
         }
-        emit_mov(code, Reg(REG_RAX, Size), Left);
+        emit_move(code, Reg(REG_RAX, Size), Left);
         emit(code, (asm_instruction){.Op = MathOp, .Dst = Reg(REG_RAX, Size), .Src = Right});
     }
 
@@ -287,10 +330,8 @@ operand emit_binop(ast_node *node, program_code *code) {
     operand SafeLeft;
 
     if (Left.Type == OPERAND_REG && Left.Reg.Register == REG_RAX && expr_may_clobber_rax(node->BinaryOp.Right)) {
-        // TODO: because using scratch registers here is not correct, and may be clobbered.
-
         SafeLeft = scratch_register(Left.Size);
-        emit_mov(code, SafeLeft, Left);
+        emit_move(code, SafeLeft, Left);
         Left = SafeLeft;
     }
 
@@ -361,14 +402,14 @@ operand emit_inc_dec(program_code *Code, ast_node *Node, bool Increment, bool Pr
     operand Temp = scratch_register(Var.Size);
 
     if (!Prefix) {
-        emit_mov(Code, Temp, Var);
+        emit_move(Code, Temp, Var);
     }
 
     operand Right = Imm(1);
 
     operand Result = emit_math(Code, Increment ? TOKEN_PLUS : TOKEN_MINUS, Var, Right);
 
-    emit_mov(Code, Var, Result);
+    emit_move(Code, Var, Result);
 
     return Prefix ? Var : Temp;
 }
@@ -409,7 +450,7 @@ operand emit_call(ast_node *node, program_code *code) {
             continue;
         }
 
-        emit_mov(code, Reg(ParamRegisters[i], ExpectedArgSize), ArgI);
+        emit_move(code, Reg(ParamRegisters[i], ExpectedArgSize), ArgI);
     }
 
     emit(code, (asm_instruction){.Op = ASM_CALL, .Dst = LabelOperand(Name)});
@@ -441,8 +482,8 @@ operand emit_expression(ast_node *node, program_code *code) {
                 Result.Size = Sym->Size;
 
                 if (Sym->Section == SECTION_STACK) {
-                    Result.Mem.Base   = REG_RBP;
-                    Result.Mem.Offset = -Sym->StackOffset;
+                    Result.Mem.Base         = REG_RBP;
+                    Result.Mem.Displacement = ConstDisplacement(-Sym->StackOffset);
                 }
             }
             break;
@@ -460,7 +501,12 @@ operand emit_expression(ast_node *node, program_code *code) {
             break;
         }
         case NODE_STRING_LIT: {
-            Result.Type = OPERAND_IMM;
+            rodata_entry Entry;
+
+            Entry.Type      = RODATA_STRING_LIT;
+            Entry.StringLit = node->StringLit.Value;
+
+            Result = get_string_lit_operand(code, push_rodata_entry(code, Entry));
             break;
         }
 
@@ -502,7 +548,7 @@ void emit_free_all_scratch_registers(program_code *code) {
     NextFreeRegister = 0;
 }
 
-void emit_mov(program_code *code, operand Dst, operand Src) {
+void emit_move(program_code *code, operand Dst, operand Src) {
     if (Src.Size == SIZE_NONE) Src.Size = Dst.Size;
 
     if (Src.Type == OPERAND_REG && Dst.Type == OPERAND_REG && Src.Reg.Register == Dst.Reg.Register) {
@@ -512,6 +558,18 @@ void emit_mov(program_code *code, operand Dst, operand Src) {
 
     if (Src.Type == OPERAND_IMM) {
         emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Src});
+        return;
+    }
+
+    if (Src.Type == OPERAND_MEM && Src.Mem.IsAddress) {
+        if (Dst.Type == OPERAND_REG) {
+            emit_lea(code, Dst, Src);
+        } else {
+            operand Tmp = scratch_register(Src.Size);
+            emit_lea(code, Tmp, Src);
+            emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Tmp});
+        }
+
         return;
     }
 
@@ -549,12 +607,12 @@ void emit_var_decl(program_code *code, ast_node *node) {
     operand Mem = {
         .Type = OPERAND_MEM,
         .Size = Sym->Size,
-        .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Offset = -Offset}
+        .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Displacement = ConstDisplacement(-Offset)}
     };
 
     operand Value = emit_expression(Init, code);
 
-    emit_mov(code, Mem, Value);
+    emit_move(code, Mem, Value);
 }
 
 void emit_statement(ast_node *node, program_code *code) {
@@ -624,7 +682,7 @@ void emit_statement(ast_node *node, program_code *code) {
                     operand Src = emit_expression(Right, code);
                     operand Dst = emit_expression(Left, code);
 
-                    emit_mov(code, Dst, Src);
+                    emit_move(code, Dst, Src);
                     break;
                 }
                 default: {
@@ -703,7 +761,7 @@ void emit_statement(ast_node *node, program_code *code) {
             operand Operand = emit_expression(Val, code);
 
             // TODO: What if we return a struct (or float)?
-            emit_mov(code, Reg(REG_RAX, code->CurrentFunctionReturnSize), Operand);
+            emit_move(code, Reg(REG_RAX, code->CurrentFunctionReturnSize), Operand);
 
             emit_jump(code, function_end_label(code));
             break;
@@ -736,14 +794,15 @@ char *register_name(memory_arena *Arena, register_id Reg, operand_size Size) {
     }
 
     static const char *RegNames[][4] = {
-        [REG_RAX] = {"al",  "ax", "eax", "rax"},
-        [REG_RBX] = {"bl",  "bx", "ebx", "rbx"},
-        [REG_RCX] = {"cl",  "cx", "ecx", "rcx"},
-        [REG_RDX] = {"dl",  "dx", "edx", "rdx"},
-        [REG_RSI] = {"sil", "si", "esi", "rsi"},
-        [REG_RDI] = {"dil", "di", "edi", "rdi"},
-        [REG_RBP] = {"bpl", "bp", "ebp", "rbp"},
-        [REG_RSP] = {"spl", "sp", "esp", "rsp"},
+        [REG_RAX] = {"al",  "ax",  "eax", "rax"},
+        [REG_RBX] = {"bl",  "bx",  "ebx", "rbx"},
+        [REG_RCX] = {"cl",  "cx",  "ecx", "rcx"},
+        [REG_RDX] = {"dl",  "dx",  "edx", "rdx"},
+        [REG_RSI] = {"sil", "si",  "esi", "rsi"},
+        [REG_RDI] = {"dil", "di",  "edi", "rdi"},
+        [REG_RBP] = {"bpl", "bp",  "ebp", "rbp"},
+        [REG_RSP] = {"spl", "sp",  "esp", "rsp"},
+        [REG_RIP] = {"err", "err", "err", "rip"},
     };
 
     switch (Reg) {
@@ -756,6 +815,7 @@ char *register_name(memory_arena *Arena, register_id Reg, operand_size Size) {
         case REG_RSI:
         case REG_RDI:
         case REG_RBP:
+        case REG_RIP:
         case REG_RSP: return (char *)RegNames[Reg][Index];
 
         case REG_R8:
@@ -803,16 +863,22 @@ void print_mem(memory_arena *Arena, FILE *out, operand op) {
     fprintf(out, "%s [%s", size_directive(op.Size), register_name(Arena, op.Mem.Base, SIZE_64));
     if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(Arena, op.Mem.Index, op.Size), op.Mem.Scale);
 
-    int Off = op.Mem.Offset;
+    displacement Disp = op.Mem.Displacement;
 
-    if (Off >= 0) {
-        fprintf(out, " + ");
-    } else {
-        fprintf(out, " - ");
-        Off = -Off;
+    if (Disp.Type == DISPLACEMENT_CONSTANT) {
+        int Off = Disp.Value;
+
+        if (Off >= 0) {
+            fprintf(out, " + ");
+        } else {
+            fprintf(out, " - ");
+            Off = -Off;
+        }
+
+        fprintf(out, "%d]", Off);
+    } else if (Disp.Type == DISPLACEMENT_LABEL) {
+        fprintf(out, " + .%.*s]", (int)Disp.Label.Length, Disp.Label.Data);
     }
-
-    fprintf(out, "%d]", Off);
 }
 
 void print_operand(memory_arena *Arena, FILE *out, operand op) {
@@ -907,11 +973,32 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
     Code.InstructionArena = make_arena();
     Code.GeneralArena     = arena;
 
+    Code.RodataEntries = arena_push(arena, MAX_STRING_LIT * sizeof(rodata_entry));
+
     emit_statement(ast, &Code);
 
     asm_instruction *Instructions = (asm_instruction *)Code.InstructionArena.Data;
 
     fprintf(out, ".intel_syntax noprefix\n\n");
+
+    if (Code.RodataEntryCount > 0) {
+        fprintf(out, ".section .rodata\n");
+
+        for (int i = 0; i < Code.RodataEntryCount; i++) {
+            rodata_entry *Entry = Code.RodataEntries + i;
+
+            if (Entry->Type == RODATA_STRING_LIT) {
+                fprintf(out,
+                        ".%.*s: .asciz \"%.*s\"\n",
+                        (int)Entry->Label.Length,
+                        Entry->Label.Data,
+                        (int)Entry->StringLit.Length,
+                        Entry->StringLit.Data);
+            }
+        }
+
+        fprintf(out, "\n");
+    }
 
     fprintf(out, ".section .text\n.global main\n\n");
 
@@ -921,7 +1008,6 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
         asm_instruction *Instr = Instructions + i;
 
         if (Instr->Op == 0) continue;
-
         if (Instr->Op != ASM_LABEL) fprintf(out, "  ");
 
         print_instruction(&AsmArena, out, Instr);
