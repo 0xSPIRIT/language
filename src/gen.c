@@ -444,9 +444,8 @@ operand emit_call(ast_node *node, program_code *code) {
         operand ArgI        = emit_expression(node->Call.Args[i], code);
         int ExpectedArgSize = node->Call.FuncName->Ident.Sym->Function.Params[i]->Size;
 
-        if (ArgI.Size > SIZE_64) {
-            emit_error("Haven't gotten to implementing this yet!");
-            assert(false);
+        if (ArgI.Size > 8) {
+            emit_error("Function parameters must be at most 8 bytes large.");
             continue;
         }
 
@@ -632,20 +631,25 @@ void emit_statement(ast_node *node, program_code *code) {
             code->CurrentFunction           = Name->Ident.Name;
             code->CurrentFunctionReturnSize = get_type_size(node->FuncDef.ReturnType->DataType.Type);
 
-            size_t local_size = Name->Ident.Sym->Size;
+            for (int i = 0; i < node->FuncDef.ParamCount; i++) {
+                int Size = get_type_size(node->FuncDef.Params[i]->VarDecl.Type->DataType.Type);
 
+                if (Size == -1) {
+                    symbol *Sym = node->FuncDef.Params[i]->VarDecl.Type->DataType.Name->Ident.Sym;
+                    Size = Sym->Size;
+                }
+
+                if (Size > 8) {
+                    emit_error("Cannot pass types larger than 8 bytes as a parameter.");
+                }
+            }
+
+            size_t local_size = Name->Ident.Sym->Size;
             size_t frame_size = local_size + total_param_bytes(Name->Ident.Sym);
 
             bool is_main = string_equals(Name->Ident.Name, CSTR("main"));
 
-            /*
-            if (is_main) {
-                emit_label(code, CSTR("_start"));
-            } else {
-            */
             emit_function_label(code, Name->Ident.Name);
-            /*
-        } */
 
             asm_instruction *Scratch = emit_function_prologue(code, frame_size);
 

@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
 
         resolve_symbols(Tree);
 
-        // print_tree(Tree);
+        print_tree(Tree);
 
         printf("-- input code --\n");
         string_print(Code);

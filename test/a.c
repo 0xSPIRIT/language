@@ -1,11 +1,18 @@
-int puts(*char s);
+int puts(*char string);
+
+struct Entity {
+    *char String1;
+};
+
+void setup(*Entity test) {
+}
 
 int main() {
-    int i = 0;
+    Entity test;
 
-    if (++i > 0) {
-        return 67;
-    } else {
-        return 69;
-    }
+    setup(&test);
+
+    puts(test.String1);
+
+    return 0;
 }

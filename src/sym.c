@@ -159,6 +159,13 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes
 
     symbols_scope *CurrentScope = Scopes->CurrentScope;
 
+    // NOTE:
+    //   Basically, I'm confused how the struct is stored on the var symbol when I
+    //   have a pointer to the struct... I tried to add it down there but I'm not
+    //   sure if that makes sense...
+    //
+    //   Shouldn't we have a PointingTo system like the ast_nodes?
+
     symbol DeclSym = {
         .Name = FieldName,
         .Type = SYM_VAR,
@@ -197,10 +204,10 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes
 
         int TypeSize = get_type_size(DataType);
 
+        ast_node *Next = Type->DataType.PointingTo;
+
         if (DataType == TYPE_ARRAY) {
             ArraySize = Type->DataType.ArraySize;
-
-            ast_node *Next = Type->DataType.PointingTo;
 
             if (Next->DataType.Type == TYPE_STRUCT) {
                 symbol *StructRef = resolve_struct_symbol(Next, CurrentScope);
@@ -210,6 +217,17 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes
                 }
             } else {
                 TypeSize = get_type_size(Next->DataType.Type);
+            }
+        } else if (DataType == TYPE_PTR) {
+            while (Next->DataType.Type == TYPE_PTR || Next->DataType.Type == TYPE_ARRAY) {
+                Next = Next->DataType.PointingTo;
+            }
+
+            symbol *StructRef = resolve_struct_symbol(Type, CurrentScope);
+
+            if (StructRef) {
+                DeclSym.Size += StructRef->Size;
+                DeclSym.StructType = StructRef;
             }
         }
 
@@ -310,6 +328,8 @@ int resolve_stack_offsets(ast_node *Stmt, int Offset) {
 // It also resolves all the identifiers it sees.
 // eg. entity.enemy_reference, where enemy_reference is an Enemy,
 //     will return the symbol for the type of Enemy.
+// eg. (entity + 1) will return symbol for type entity
+// eg. *(entity + 1) will return symbol for type entity
 symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
     if (node->Type == NODE_IDENT) {
         symbol *NodeSym   = search_for_symbol(node->Ident.Name, Scopes);
@@ -318,7 +338,18 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
         node->Ident.Sym = NodeSym;
         return StructRef;
     } else if (node->Type == NODE_BINARY_OP) {
-        if (node->BinaryOp.Operation != TOKEN_DOT) {
+        if (node->BinaryOp.Operation == TOKEN_PLUS || node->BinaryOp.Operation == TOKEN_MINUS) {
+            symbol *Left  = resolve_struct_symbol_from_expr(node->BinaryOp.Left, Scopes);
+            symbol *Right = resolve_struct_symbol_from_expr(node->BinaryOp.Right, Scopes);
+
+            if (Left) {
+                return Left;
+            } else if (Right) {
+                return Right;
+            } else {
+                return NULL;
+            }
+        } else if (node->BinaryOp.Operation != TOKEN_DOT) {
             parse_error(0, "Trying to do a binary operation that resolves to a structure? What are you doing man?!");
         } else {
             symbol *LeftStruct = resolve_struct_symbol_from_expr(node->BinaryOp.Left, Scopes);
@@ -326,8 +357,9 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
             if (node->BinaryOp.Right->Type != NODE_IDENT) {
                 parse_error(0, "Trying to access a struct with a token that isn't an identifier.");
             } else {
-                string FieldName                = node->BinaryOp.Right->Ident.Name;
-                symbol *FieldSym                = search_struct_for_field(LeftStruct, FieldName);
+                string FieldName = node->BinaryOp.Right->Ident.Name;
+                symbol *FieldSym = search_struct_for_field(LeftStruct, FieldName);
+
                 node->BinaryOp.Right->Ident.Sym = FieldSym;
 
                 if (!FieldSym) {
@@ -338,6 +370,11 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
                     return StructRef;
                 }
             }
+        }
+    } else if (node->Type == NODE_UNARY_OP) {
+        // Dereference operator
+        if (node->UnaryOp.Operation == TOKEN_STAR) {
+            return resolve_struct_symbol_from_expr(node->UnaryOp.Operand, Scopes);
         }
     }
 

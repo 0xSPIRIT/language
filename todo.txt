@@ -1,5 +1,6 @@
 [x] String literals as *char
-[ ] Restrict passing structs as parameters or return type. Only take pointers, arrays, or
+[x] Continue and break
+[x] Restrict passing structs as parameters or return type. Only take pointers, arrays, or
     base types.
 [ ] Implement pointers - pointer arithmetic, dereferencing
   [ ] Currently mismatch type for add with pointer math
