@@ -15,6 +15,8 @@ typedef enum {
     NODE_PROGRAM,
     NODE_FUNC_DEF,
     NODE_BLOCK,
+    NODE_BREAK,
+    NODE_CONTINUE,
     NODE_VAR_DECL,
     NODE_TYPE,
     NODE_RETURN,

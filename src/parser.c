@@ -423,6 +423,10 @@ bool is_var_decl(parser *p) {
     return Result;
 }
 
+bool is_break(parser *p) { return expect_keyword(p, KEYWORD_BREAK); }
+
+bool is_continue(parser *p) { return expect_keyword(p, KEYWORD_CONTINUE); }
+
 ast_node *parse_block(parser *p) {
     ast_node *Block = node(p, NODE_BLOCK);
 
@@ -546,6 +550,20 @@ ast_node *parse_while(parser *p) {
     return Node;
 }
 
+ast_node *parse_break(parser *p) {
+    ast_node *Node = node(p, NODE_BREAK);
+    consume_keyword(p, KEYWORD_BREAK);
+
+    return Node;
+}
+
+ast_node *parse_continue(parser *p) {
+    ast_node *Node = node(p, NODE_CONTINUE);
+    consume_keyword(p, KEYWORD_CONTINUE);
+
+    return Node;
+}
+
 node_type next_statement_type(parser *p) {
     if (is_struct(p)) return NODE_STRUCT;
     if (is_if(p)) return NODE_IF;
@@ -556,6 +574,8 @@ node_type next_statement_type(parser *p) {
     if (is_function_call(p)) return NODE_CALL;
     if (is_block(p)) return NODE_BLOCK;
     if (is_var_decl(p)) return NODE_VAR_DECL;
+    if (is_break(p)) return NODE_BREAK;
+    if (is_continue(p)) return NODE_CONTINUE;
 
     // Not a statement OR couldn't determine what type of statement was next.
 
@@ -577,6 +597,16 @@ ast_node *parse_statement(parser *p, node_type type) {
         case NODE_BLOCK: Node = parse_block(p); break;
         case NODE_RETURN:
             Node = parse_return(p);
+
+            ExpectSemicolon = true;
+            break;
+        case NODE_BREAK:
+            Node = parse_break(p);
+
+            ExpectSemicolon = true;
+            break;
+        case NODE_CONTINUE:
+            Node = parse_continue(p);
 
             ExpectSemicolon = true;
             break;
@@ -715,7 +745,8 @@ int get_top_level_function_count(parser *p) {
     do {
         if (is_function(p)) {
             Count++;
-            while (has_next(p) && (peek(p)->Type != TOKEN_OPEN_SCOPE && peek(p)->Type != TOKEN_END_STATEMENT)) advance(p);
+            while (has_next(p) && (peek(p)->Type != TOKEN_OPEN_SCOPE && peek(p)->Type != TOKEN_END_STATEMENT))
+                advance(p);
             move_to_end_of_block(p);
         } else {
             advance(p);

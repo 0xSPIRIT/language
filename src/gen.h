@@ -8,6 +8,7 @@
 #define MAX_FUNCTIONS 1024
 #define MAX_VARS 16384
 #define MAX_STRING_LIT 16384
+#define MAX_DEPTH 16384
 
 typedef enum {
     ASM_INVALID,
@@ -148,6 +149,10 @@ typedef struct {
 } rodata_entry;
 
 typedef struct {
+    string BreakLabel, ContinueLabel;
+} loop;
+
+typedef struct {
     memory_arena InstructionArena;
     memory_arena *GeneralArena;
 
@@ -161,12 +166,15 @@ typedef struct {
 
     int Label;
     int CurrentRodataLabel;
-    string CurrentBreakLabel;
+
+    loop *Loops;
+    int LoopCount;
 } program_code;
 
 program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast);
 void free_program_code(program_code *program);
 void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in);
+void emit_statement(ast_node *node, program_code *code);
 operand emit_expression(ast_node *node, program_code *code);
 operand scratch_register(operand_size size);
 void free_scratch_register(operand Op);

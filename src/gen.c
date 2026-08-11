@@ -84,6 +84,18 @@ string emit_function_label(program_code *code, string Name) {
     return Name;
 }
 
+void push_loop(program_code *code, string BreakLabel, string ContinueLabel) {
+    loop Loop = {BreakLabel, ContinueLabel};
+
+    code->Loops[code->LoopCount++] = Loop;
+}
+
+void pop_loop(program_code *code) {
+    if (code->LoopCount == 0) return;
+
+    code->LoopCount--;
+}
+
 void emit_spill_params(program_code *code, symbol *FuncSym, size_t local_size) {
     for (int i = 0; i < FuncSym->Function.ParamCount; i++) {
         symbol *Param = FuncSym->Function.Params[i];
@@ -115,7 +127,7 @@ size_t total_param_bytes(symbol *FuncSym) {
 }
 
 asm_instruction *emit_function_prologue(program_code *code, size_t frame_size) {
-    // TODO: Account for 128 byte redzone?
+    // TODO: If the function is a leaf function, account for 128 byte redzone?
     size_t AlignedSize = 16 * (frame_size / 16 + (frame_size % 16 > 0));
 
     asm_instruction Instructions[] = {
@@ -189,6 +201,8 @@ void emit_function_epilogue(program_code *code) {
     emit_label(code, function_end_label(code));
     emit_count(code, Instructions, ArraySize(Instructions));
 }
+
+void emit_for(program_code *code) {}
 
 operand LabelOperand(string Label) { return (operand){.Type = OPERAND_LABEL, .Label.Name = Label}; }
 
@@ -728,6 +742,8 @@ void emit_statement(ast_node *node, program_code *code) {
             string Start = emit_next_label(code);
             string End   = new_label(code);
 
+            push_loop(code, End, Start);
+
             operand Condition = emit_expression(node->While.Condition, code);
 
             emit_test(code, Condition, Condition);
@@ -738,13 +754,20 @@ void emit_statement(ast_node *node, program_code *code) {
             emit_jump(code, Start);
 
             emit_label(code, End);
+
+            pop_loop(code);
             break;
         }
         case NODE_FOR: {
+            string Start    = new_label(code);
+            string End      = new_label(code);
+            string Continue = new_label(code);
+
+            push_loop(code, End, Continue);
+
             emit_statement(node->For.Init, code);
 
-            string Start = emit_next_label(code);
-            string End   = new_label(code);
+            emit_label(code, Start);
 
             operand Condition = emit_expression(node->For.Condition, code);
 
@@ -752,12 +775,12 @@ void emit_statement(ast_node *node, program_code *code) {
             emit_je(code, End);
 
             emit_statement(node->For.Body, code);
-
+            emit_label(code, Continue);
             emit_statement(node->For.Advance, code);
-
             emit_jump(code, Start);
-
             emit_label(code, End);
+
+            pop_loop(code);
             break;
         }
         case NODE_RETURN: {
@@ -768,6 +791,14 @@ void emit_statement(ast_node *node, program_code *code) {
             emit_move(code, Reg(REG_RAX, code->CurrentFunctionReturnSize), Operand);
 
             emit_jump(code, function_end_label(code));
+            break;
+        }
+        case NODE_BREAK: {
+            emit_jump(code, code->Loops[code->LoopCount - 1].BreakLabel);
+            break;
+        }
+        case NODE_CONTINUE: {
+            emit_jump(code, code->Loops[code->LoopCount - 1].ContinueLabel);
             break;
         }
         case NODE_VAR_DECL: {
@@ -978,6 +1009,7 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
     Code.GeneralArena     = arena;
 
     Code.RodataEntries = arena_push(arena, MAX_STRING_LIT * sizeof(rodata_entry));
+    Code.Loops         = arena_push(arena, MAX_DEPTH * sizeof(loop));
 
     emit_statement(ast, &Code);
 

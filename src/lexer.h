@@ -58,12 +58,15 @@ typedef enum {
     KEYWORD_WHILE,
     KEYWORD_SWITCH,
     KEYWORD_STRUCT,
-    KEYWORD_RETURN
+    KEYWORD_RETURN,
+    KEYWORD_BREAK,
+    KEYWORD_CONTINUE,
 } keyword;
 
 const string Keywords[] = {
     CSTR("if"),     CSTR("else"),   CSTR("for"),    CSTR("while"),
-    CSTR("switch"), CSTR("struct"), CSTR("return"),
+    CSTR("switch"), CSTR("struct"), CSTR("return"), CSTR("break"),
+    CSTR("continue")
 };
 
 typedef struct {
