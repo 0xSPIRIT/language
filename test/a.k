@@ -1,14 +1,23 @@
-*void malloc(int size);
+*void malloc(uint64 size);
 int puts(*char string);
 *void memcpy(*void dest, *void src, uint64 n);
 *char strcpy(*char dest, *char src);
 
-int main() {
-    *char String = "Hello there matey!";
+void clrstr(*char string) *string = 0;
 
-    for (int i = 0; i < 10; i++) {
-        puts(String + i);
-    }
+int main() {
+    *char Test = malloc(100);
+
+    strcpy(Test, "This is a first one!");
+    puts(Test);
+
+    *char B = Test;
+
+    puts(B);
+
+    strcpy(Test, "What");
+
+    puts(B);
 
     return 67;
 }

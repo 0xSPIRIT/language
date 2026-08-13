@@ -275,6 +275,8 @@ void emit_lea(program_code *code, operand DstReg, operand SrcMem) {
     assert(DstReg.Type == OPERAND_REG);
     assert(SrcMem.Type == OPERAND_MEM);
 
+    SrcMem.Size = 0;
+
     emit(code, (asm_instruction){.Op = ASM_LEA, .Dst = DstReg, .Src = SrcMem});
 }
 
@@ -565,11 +567,25 @@ operand emit_dereference(program_code *code, ast_node *OperandNode) {
     return Reg(REG_RAX, SIZE_64);
 }
 
+operand emit_addressof(program_code *code, ast_node *OperandNode) {
+    assert(OperandNode->Type == NODE_UNARY_OP);
+    assert(OperandNode->UnaryOp.Operation == TOKEN_AMP);
+
+    operand Op = emit_expression(OperandNode->UnaryOp.Operand, code);
+    assert(Op.Type == OPERAND_MEM);
+    emit_lea(code, Reg(REG_RAX, SIZE_64), Op);
+    return Reg(REG_RAX, SIZE_64);
+}
+
 operand emit_unaryop(ast_node *node, program_code *code) {
     token_type Operation = node->UnaryOp.Operation;
 
     if (Operation == TOKEN_STAR) {
         return emit_dereference(code, node);
+    }
+
+    if (Operation == TOKEN_AMP) {
+        return emit_addressof(code, node);
     }
 
     operand Operand = emit_expression(node->UnaryOp.Operand, code);
@@ -1026,7 +1042,7 @@ char *register_name(memory_arena *Arena, register_id Reg, operand_size Size) {
 
 char *size_directive(operand_size size) {
     switch (size) {
-        case SIZE_NONE: return "(invalid size)";
+        case SIZE_NONE: return ""; // Used for LEA
         case SIZE_8:    return "BYTE PTR";
         case SIZE_16:   return "WORD PTR";
         case SIZE_32:   return "DWORD PTR";
@@ -1037,7 +1053,8 @@ char *size_directive(operand_size size) {
 }
 
 void print_mem(memory_arena *Arena, FILE *out, operand op) {
-    fprintf(out, "%s [%s", size_directive(op.Size), register_name(Arena, op.Mem.Base, SIZE_64));
+    char *SizeDirective = size_directive(op.Size);
+    fprintf(out, "%s%s[%s", SizeDirective, SizeDirective[0] ? " " : "", register_name(Arena, op.Mem.Base, SIZE_64));
     if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(Arena, op.Mem.Index, op.Size), op.Mem.Scale);
 
     displacement Disp = op.Mem.Displacement;
