@@ -101,18 +101,18 @@ void emit_spill_params(program_code *code, symbol *FuncSym, size_t local_size) {
         symbol *Param = FuncSym->Function.Params[i];
 
         // Give each parameter a stack slot
-        local_size += Param->Size;
+        local_size += Param->TypeInfo.Size;
 
         Param->StackOffset = local_size;
         Param->Section     = SECTION_STACK;
 
         operand Dst = {
             .Type = OPERAND_MEM,
-            .Size = Param->Size,
+            .Size = Param->TypeInfo.Size,
             .Mem  = {.Base = REG_RBP, .Displacement = ConstDisplacement(-Param->StackOffset)}
         };
 
-        emit_move(code, Dst, Reg(ParamRegisters[i], Param->Size));
+        emit_move(code, Dst, Reg(ParamRegisters[i], Param->TypeInfo.Size));
     }
 }
 
@@ -120,7 +120,7 @@ size_t total_param_bytes(symbol *FuncSym) {
     size_t Result = 0;
 
     for (int i = 0; i < FuncSym->Function.ParamCount; i++) {
-        Result += FuncSym->Function.Params[i]->Size;
+        Result += FuncSym->Function.Params[i]->TypeInfo.Size;
     }
 
     return Result;
@@ -260,7 +260,6 @@ operand emit_comparison(program_code *code, token_type Op, operand Left, operand
     }
 
     emit(code, (asm_instruction){.Op = SetOpcode, .Dst = Reg(REG_RAX, SIZE_8)});
-
     emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Reg(REG_RAX, SIZE_32), .Src = Reg(REG_RAX, SIZE_8)});
 
     return Reg(REG_RAX, SIZE_32);
@@ -303,6 +302,8 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
 
     if (MathOp == ASM_IDIV) {
         emit_move(code, Reg(REG_RAX, Size), Left);
+
+        // Why did we do this again...?
         emit(code, (asm_instruction){.Op = ASM_CDQ});
 
         if (Right.Type == OPERAND_IMM) {
@@ -376,6 +377,10 @@ operand emit_binop(ast_node *node, program_code *code) {
         }
         case TOKEN_PLUS:
         case TOKEN_MINUS:
+            if (is_pointer_math_op(code, node)) {
+                Result = emit_pointer_math_op(code, node);
+                break;
+            }
         case TOKEN_STAR:
         case TOKEN_DIVIDE: {
             Result = emit_math(code, node->BinaryOp.Operation, Left, Right);
@@ -428,9 +433,146 @@ operand emit_inc_dec(program_code *Code, ast_node *Node, bool Increment, bool Pr
     return Prefix ? Var : Temp;
 }
 
+// Get type info of a pointer from pointer arithmetic binary operation
+type_info get_type_info_from_operand(ast_node *Node) {
+    type_info Result = {};
+
+    switch (Node->Type) {
+        case NODE_IDENT:     Result = Node->Ident.Sym->TypeInfo; break;
+        case NODE_BINARY_OP: {
+            if (Node->BinaryOp.Operation != TOKEN_PLUS) emit_error("Pointer math can only be done with addition.");
+
+            type_info A = get_type_info_from_operand(Node->BinaryOp.Left);
+            type_info B = get_type_info_from_operand(Node->BinaryOp.Right);
+
+            if (A.IndirectionDepth > 0 && B.IndirectionDepth > 0) {
+                emit_error("Pointer math can only be done with one pointer operand.");
+            } else if (A.IndirectionDepth > 0) {
+                Result = A;
+            } else {
+                Result = B;
+            }
+        }
+        default: break;
+    }
+
+    return Result;
+}
+
+bool is_pointer_math_op(program_code *code, ast_node *Node) {
+    if (Node->Type != NODE_BINARY_OP) return false;
+
+    type_info A = get_type_info_from_operand(Node->BinaryOp.Left);
+    type_info B = get_type_info_from_operand(Node->BinaryOp.Right);
+
+    if (A.IndirectionDepth > 0 && B.IndirectionDepth > 0) return false;
+
+    if (A.IndirectionDepth > 0 || B.IndirectionDepth > 0) return true;
+
+    return false;
+}
+
+// Returns pointer into rax
+operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
+    type_info TypeInfo = get_type_info_from_operand(Operand);
+
+    switch (Operand->Type) {
+        case NODE_IDENT: {
+            operand Mem = emit_expression(Operand, code);
+            emit_move(code, Reg(REG_RAX, SIZE_64), Mem);
+            return Reg(REG_RAX, SIZE_64);
+        }
+        case NODE_BINARY_OP: {
+            token_type Operation = Operand->BinaryOp.Operation;
+
+            switch (Operation) {
+                case TOKEN_PLUS:
+                case TOKEN_MINUS: {
+                    // Right now I've only hardcoded ptr + n syntax. But ptr + n1 + n2 + ... should be valid too, no?
+                    // Not really a high priority for me though, so I'm leaving it so.
+
+                    operand Left  = emit_expression(Operand->BinaryOp.Left, code);
+                    operand Right = emit_expression(Operand->BinaryOp.Right, code);
+
+                    type_info TypeInfoLeft = get_type_info_from_operand(Operand->BinaryOp.Left);
+
+                    operand Ptr = TypeInfoLeft.IndirectionDepth > 0 ? Left : Right;
+                    operand Off = TypeInfoLeft.IndirectionDepth > 0 ? Right : Left;
+
+                    Off.Imm.Value *= TypeInfo.PointingTo->Size;
+
+                    // Move result into rax
+                    emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
+
+                    asm_opcode Opcode = Operation == TOKEN_PLUS ? ASM_ADD : ASM_SUB;
+
+                    operand Src = Off;
+
+                    if (Off.Size != SIZE_64) {
+                        // move (sign extended) into temp register
+                        operand Tmp = scratch_register(SIZE_64);
+                        emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Tmp, .Src = Off});
+                        Src = Tmp;
+                    }
+
+                    emit(code, (asm_instruction){.Op = Opcode, .Dst = Reg(REG_RAX, SIZE_64), .Src = Src});
+
+                    return Reg(REG_RAX, SIZE_64);
+                    break;
+                }
+                default: {
+                    // TODO: Error message
+                    assert(false);
+                    break;
+                }
+            }
+            break;
+        }
+        default: {
+            // TODO: Error message
+            assert(false);
+            break;
+        }
+    }
+
+    assert(false);
+
+    return (operand){};
+}
+
+operand emit_dereference(program_code *code, ast_node *OperandNode) {
+    assert(OperandNode->Type == NODE_UNARY_OP);
+
+    // Extract type info to get size
+    type_info TypeInfo = get_type_info_from_operand(OperandNode->UnaryOp.Operand);
+
+    emit_pointer_math_op(code, OperandNode->UnaryOp.Operand);
+
+    if (TypeInfo.Size <= 8) {
+        operand Dst = {};
+
+        Dst.Type          = OPERAND_MEM;
+        Dst.Size          = TypeInfo.PointingTo->Size;
+        Dst.Mem.IsAddress = true;
+        Dst.Mem.Base      = REG_RAX;
+
+        return Dst;
+    } else {
+        // TODO: Emit memcpy?
+        assert(false);
+    }
+
+    return Reg(REG_RAX, SIZE_64);
+}
+
 operand emit_unaryop(ast_node *node, program_code *code) {
     token_type Operation = node->UnaryOp.Operation;
-    operand Operand      = emit_expression(node->UnaryOp.Operand, code);
+
+    if (Operation == TOKEN_STAR) {
+        return emit_dereference(code, node);
+    }
+
+    operand Operand = emit_expression(node->UnaryOp.Operand, code);
 
     bool Prefix = node->UnaryOp.First;
 
@@ -456,7 +598,7 @@ operand emit_call(ast_node *node, program_code *code) {
 
     for (int i = node->Call.ArgCount - 1; i >= 0; i--) {
         operand ArgI        = emit_expression(node->Call.Args[i], code);
-        int ExpectedArgSize = node->Call.FuncName->Ident.Sym->Function.Params[i]->Size;
+        int ExpectedArgSize = node->Call.FuncName->Ident.Sym->Function.Params[i]->TypeInfo.Size;
 
         if (ArgI.Size > 8) {
             emit_error("Function parameters must be at most 8 bytes large.");
@@ -488,11 +630,11 @@ operand emit_expression(ast_node *node, program_code *code) {
 
             if (Sym->Section == SECTION_REG) {
                 Result.Type         = OPERAND_REG;
-                Result.Size         = Sym->Size;
+                Result.Size         = Sym->TypeInfo.Size;
                 Result.Reg.Register = ParamRegisters[Sym->ParamIndex];
             } else {
                 Result.Type = OPERAND_MEM;
-                Result.Size = Sym->Size;
+                Result.Size = Sym->TypeInfo.Size;
 
                 if (Sym->Section == SECTION_STACK) {
                     Result.Mem.Base         = REG_RBP;
@@ -619,7 +761,7 @@ void emit_var_decl(program_code *code, ast_node *node) {
     // Variable is stored at [rbp - Offset]
     operand Mem = {
         .Type = OPERAND_MEM,
-        .Size = Sym->Size,
+        .Size = Sym->TypeInfo.Size,
         .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Displacement = ConstDisplacement(-Offset)}
     };
 
@@ -650,7 +792,7 @@ void emit_statement(ast_node *node, program_code *code) {
 
                 if (Size == -1) {
                     symbol *Sym = node->FuncDef.Params[i]->VarDecl.Type->DataType.Name->Ident.Sym;
-                    Size = Sym->Size;
+                    Size        = Sym->TypeInfo.Size;
                 }
 
                 if (Size > 8) {
@@ -658,7 +800,7 @@ void emit_statement(ast_node *node, program_code *code) {
                 }
             }
 
-            size_t local_size = Name->Ident.Sym->Size;
+            size_t local_size = Name->Ident.Sym->TypeInfo.Size;
             size_t frame_size = local_size + total_param_bytes(Name->Ident.Sym);
 
             bool is_main = string_equals(Name->Ident.Name, CSTR("main"));
@@ -913,6 +1055,8 @@ void print_mem(memory_arena *Arena, FILE *out, operand op) {
         fprintf(out, "%d]", Off);
     } else if (Disp.Type == DISPLACEMENT_LABEL) {
         fprintf(out, " + .%.*s]", (int)Disp.Label.Length, Disp.Label.Data);
+    } else {
+        fprintf(out, "]");
     }
 }
 

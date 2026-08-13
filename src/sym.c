@@ -132,11 +132,7 @@ symbol *resolve_struct_symbol(ast_node *StructType, symbols_scope *CurrentScope)
         } else {
             parse_error(0, "The struct type couldn't be resolved because there was another symbol with the same name.");
         }
-    } else {
-        parse_error(0, "We tried to resolve a struct type in a field but it was not declared yet.");
     }
-
-    assert(false);
 
     return 0;
 }
@@ -151,20 +147,41 @@ symbol *search_struct_for_field(symbol *structure, string Name) {
     return NULL;
 }
 
-// param_index should be -1 if this variable is not a parameter
-symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes, ast_node *var_decl, int param_index) {
-    ast_node *Type   = var_decl->VarDecl.Type;
-    type DataType    = Type->DataType.Type;
-    string FieldName = var_decl->VarDecl.Name->Ident.Name;
+// Returns indirection depth
+int resolve_type_info(memory_arena *arena, scopes *Scopes, ast_node *Type, type_info *TypeInfo) {
+    assert(Type->Type == NODE_TYPE);
+    type DataType = Type->DataType.Type;
 
     symbols_scope *CurrentScope = Scopes->CurrentScope;
 
-    // NOTE:
-    //   Basically, I'm confused how the struct is stored on the var symbol when I
-    //   have a pointer to the struct... I tried to add it down there but I'm not
-    //   sure if that makes sense...
-    //
-    //   Shouldn't we have a PointingTo system like the ast_nodes?
+    if (DataType == TYPE_PTR || DataType == TYPE_ARRAY) {
+        type_info *NextTypeInfo = arena_push(arena, sizeof(type_info));
+
+        TypeInfo->IndirectionDepth =
+            1 + resolve_type_info(arena, Scopes, Type->DataType.PointingTo, NextTypeInfo);
+
+        TypeInfo->PointingTo = NextTypeInfo;
+
+        if (DataType == TYPE_ARRAY) {
+            TypeInfo->Size = Type->DataType.ArraySize * NextTypeInfo->Size;
+        } else {
+            TypeInfo->Size = 8;
+        }
+    } else if (DataType == TYPE_STRUCT) {
+        symbol *StructRef    = resolve_struct_symbol(Type, CurrentScope);
+        TypeInfo->StructType = StructRef;
+        TypeInfo->Size       = StructRef->TypeInfo.Size;
+    } else {
+        // Primitive type, get size directly.
+        TypeInfo->Size = get_type_size(DataType);
+    }
+
+    return TypeInfo->IndirectionDepth;
+}
+
+// param_index should be -1 if this variable is not a parameter
+symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes, ast_node *var_decl, int param_index) {
+    string FieldName = var_decl->VarDecl.Name->Ident.Name;
 
     symbol DeclSym = {
         .Name = FieldName,
@@ -176,67 +193,7 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes
         DeclSym.ParamIndex = param_index;
     }
 
-    // Calculate pointer depth
-    if (Type) {
-        ast_node *TypeNode = Type;
-        int Depth          = 0;
-
-        while (TypeNode->DataType.Type == TYPE_PTR || TypeNode->DataType.Type == TYPE_ARRAY) {
-            Depth++;
-            TypeNode = TypeNode->DataType.PointingTo;
-        }
-
-        DeclSym.PointerDepth = Depth;
-    }
-
-    // If the field type is another struct,
-    // we search for that struct symbol, and get its size.
-
-    if (DataType == TYPE_STRUCT) {
-        symbol *StructRef = resolve_struct_symbol(Type, CurrentScope);
-
-        if (StructRef) {
-            DeclSym.Size += StructRef->Size;
-            DeclSym.StructType = StructRef;
-        }
-    } else {
-        int ArraySize = 1;
-
-        int TypeSize = get_type_size(DataType);
-
-        ast_node *Next = Type->DataType.PointingTo;
-
-        if (DataType == TYPE_ARRAY) {
-            ArraySize = Type->DataType.ArraySize;
-
-            if (Next->DataType.Type == TYPE_STRUCT) {
-                symbol *StructRef = resolve_struct_symbol(Next, CurrentScope);
-
-                if (StructRef) {
-                    TypeSize = StructRef->Size;
-                }
-            } else {
-                TypeSize = get_type_size(Next->DataType.Type);
-            }
-        } else if (DataType == TYPE_PTR) {
-            while (Next->DataType.Type == TYPE_PTR || Next->DataType.Type == TYPE_ARRAY) {
-                Next = Next->DataType.PointingTo;
-            }
-
-            symbol *StructRef = resolve_struct_symbol(Type, CurrentScope);
-
-            if (StructRef) {
-                DeclSym.Size += StructRef->Size;
-                DeclSym.StructType = StructRef;
-            }
-        }
-
-        DeclSym.Size = ArraySize * TypeSize;
-
-        if (DeclSym.Size <= 0) {
-            parse_error(0, "A field type cannot be void or have a negative size.");
-        }
-    }
+    resolve_type_info(arena, Scopes, var_decl->VarDecl.Type, &DeclSym.TypeInfo);
 
     return DeclSym;
 }
@@ -290,7 +247,7 @@ int resolve_stack_offsets(ast_node *Stmt, int Offset) {
             ast_node *Identifier = Stmt->VarDecl.Name;
             symbol *Sym          = Identifier->Ident.Sym;
 
-            Offset += Sym->Size;
+            Offset += Sym->TypeInfo.Size;
             Sym->StackOffset = Offset;
 
             for (int i = 0; i < Stmt->VarDecl.ChildDeclsCount; i++) {
@@ -333,7 +290,7 @@ int resolve_stack_offsets(ast_node *Stmt, int Offset) {
 symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
     if (node->Type == NODE_IDENT) {
         symbol *NodeSym   = search_for_symbol(node->Ident.Name, Scopes);
-        symbol *StructRef = NodeSym->StructType;
+        symbol *StructRef = NodeSym->TypeInfo.StructType;
 
         node->Ident.Sym = NodeSym;
         return StructRef;
@@ -365,7 +322,7 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
                 if (!FieldSym) {
                     parse_error(0, "Couldn't find field in struct.");
                 } else {
-                    symbol *StructRef = FieldSym->StructType;
+                    symbol *StructRef = FieldSym->TypeInfo.StructType;
 
                     return StructRef;
                 }
@@ -387,14 +344,14 @@ int resolve_struct_decl_field(memory_arena *arena, scopes *Scopes, symbol *struc
     symbol FieldSym = make_var_decl_symbol_and_resolve_type(arena, Scopes, var_decl, -1);
 
     FieldSym.Type        = SYM_FIELD;
-    FieldSym.FieldOffset = structure->Size;
+    FieldSym.FieldOffset = structure->TypeInfo.Size;
 
     symbol *CreatedSymbol = push_field_symbol_to_struct(arena, structure, FieldSym);
 
     // Point the identifier to the created field symbol.
     var_decl->VarDecl.Name->Ident.Sym = CreatedSymbol;
 
-    return FieldSym.Size;
+    return FieldSym.TypeInfo.Size;
 }
 
 void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbol current_symbol, bool must_exist) {
@@ -461,8 +418,8 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbo
 
             symbol *Sym = node->FuncDef.Name->Ident.Sym;
 
-            Sym->Size     = resolve_stack_offsets(node->FuncDef.Body, 0);
-            Sym->Function = FuncData;
+            Sym->TypeInfo.Size = resolve_stack_offsets(node->FuncDef.Body, 0);
+            Sym->Function      = FuncData;
             break;
         }
         case NODE_CALL: {
@@ -541,15 +498,15 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbo
 
                 assert(FieldVarDecl->Type == NODE_VAR_DECL);
 
-                StructSymbol.Size += resolve_struct_decl_field(arena, Scopes, &StructSymbol, FieldVarDecl);
+                StructSymbol.TypeInfo.Size += resolve_struct_decl_field(arena, Scopes, &StructSymbol, FieldVarDecl);
 
                 for (int i = 0; i < FieldVarDecl->VarDecl.ChildDeclsCount; i++) {
-                    StructSymbol.Size +=
+                    StructSymbol.TypeInfo.Size +=
                         resolve_struct_decl_field(arena, Scopes, &StructSymbol, FieldVarDecl->VarDecl.ChildDecls[i]);
                 }
             }
 
-            printf("Got struct size: %d\n", StructSymbol.Size);
+            printf("Got struct size: %d\n", StructSymbol.TypeInfo.Size);
 
             resolve(node, push_symbol(arena, CurrentScope, StructSymbol));
             break;

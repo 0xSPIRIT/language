@@ -1,10 +1,6 @@
-[x] String literals as *char
-[x] Break and continue
-[x] Restrict passing structs as parameters or return type. Only take pointers, arrays, or
-    base types.
-[ ] Variadic arguments (for printf)
 [ ] Implement pointers - pointer arithmetic, dereferencing
   [ ] Currently mismatch type for add with pointer math
+[ ] Variadic arguments (for printf)
 [ ] Implement arrays (stack allocated).
 [ ] Implement sizeof()
 [ ] Implement structs.

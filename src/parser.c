@@ -364,7 +364,39 @@ token *advance_type(parser *p) {
     return peek(p);
 }
 
-bool is_type(parser *p) { return expect(p, TOKEN_STAR) || expect(p, TOKEN_OPEN_SQUARE) || expect(p, TOKEN_IDENTIFIER); }
+// A type in this language has the format <indirection> <type name> <variable name>;
+bool is_type(parser *p) {
+    int StoredPos = p->i;
+
+    // eat all the indirection symbols
+    while (expect(p, TOKEN_STAR) || expect(p, TOKEN_OPEN_SQUARE)) {
+        if (expect(p, TOKEN_OPEN_SQUARE)) {
+            consume(p, TOKEN_NUMBER);
+            consume(p, TOKEN_CLOSE_SQUARE);
+        } else {
+            advance(p);
+        }
+    }
+
+    // eat the type name
+    if (expect(p, TOKEN_IDENTIFIER)) {
+        advance(p);
+    } else {
+        p->i = StoredPos;
+        return false;
+    }
+
+    // eat the variable name
+    if (expect(p, TOKEN_IDENTIFIER)) {
+        advance(p);
+    } else {
+        p->i = StoredPos;
+        return false;
+    }
+
+    p->i = StoredPos;
+    return true;
+}
 
 ast_node *parse_var_decl_singular(parser *p, ast_node *type) {
     token *VarName = consume(p, TOKEN_IDENTIFIER);
@@ -577,7 +609,7 @@ node_type next_statement_type(parser *p) {
     if (is_break(p)) return NODE_BREAK;
     if (is_continue(p)) return NODE_CONTINUE;
 
-    // Not a statement OR couldn't determine what type of statement was next.
+    // Not on this predefined list of operations, so we evaluate it in parser_expressions.c
 
     return NODE_INVALID;
 }

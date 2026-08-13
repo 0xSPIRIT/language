@@ -9,6 +9,8 @@
 #define ArraySize(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define Max(a, b) ((a) < (b) ? (b) : (a))
 
+#define Breakpoint __asm__ volatile("int $3")
+
 // Reset
 #define ANSI_RESET "\033[0m"
 
