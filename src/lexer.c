@@ -129,6 +129,14 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
     for (size_t i = 0; i < code.Length; i++) {
         char ch = code.Data[i];
 
+        // Comment
+        if (ch == '/' && i+1 < code.Length && code.Data[i+1] == '/') {
+            while (i == code.Length || code.Data[i] != '\n')
+                i++;
+
+            continue;
+        }
+
         if (ch == '\n') {
             Col = 1;
             Line++;

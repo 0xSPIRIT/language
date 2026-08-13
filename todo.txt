@@ -1,6 +1,3 @@
-[x] Implement pointers - pointer arithmetic, dereferencing
-  [x] Currently mismatch type for add with pointer math
-  [x] Address of operator
 [ ] Variadic arguments (for printf)
 [ ] Implement arrays (stack allocated).
 [ ] Implement sizeof()
