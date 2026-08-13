@@ -48,6 +48,8 @@ char *token_name(token_type type) {
         case TOKEN_DIV_EQ:   return "/=";
         case TOKEN_MOD_EQ:   return "%=";
 
+        case TOKEN_ELLIPSES: return "...";
+
         default: return "(unknown token)";
     }
 }
@@ -146,6 +148,17 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             tok.String = (string){code.Data + Start, i - Start + 1};
 
             Tokens[TokenCount++] = tok;
+
+            continue;
+        }
+
+        if (i + 2 < code.Length) {
+            string Str = {code.Data + i, 3};
+
+            if (string_equals(Str, CSTR("..."))) {
+                Tokens[TokenCount++] = (token){TOKEN_ELLIPSES, Str};
+                i += 2;
+            }
 
             continue;
         }

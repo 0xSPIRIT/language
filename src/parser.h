@@ -19,6 +19,7 @@ typedef enum {
     NODE_CONTINUE,
     NODE_VAR_DECL,
     NODE_TYPE,
+    NODE_VARARG,
     NODE_RETURN,
     NODE_IF,
     NODE_WHILE,
@@ -51,8 +52,9 @@ typedef struct ast_node {
             struct ast_node *Name;  // NODE_IDENT
             struct ast_node *ReturnType;
             struct ast_node **Params;  // array of NODE_VAR_DECL
-            int ParamCount;
             struct ast_node *Body;  // NODE_BLOCK
+            int ParamCount;
+            bool IsVarArg;
         } FuncDef;
 
         // NODE_BLOCK
@@ -118,7 +120,7 @@ typedef struct ast_node {
 
         // NODE_CALL
         struct {
-            struct ast_node *FuncName; // NODE_IDENT
+            struct ast_node *FuncName;  // NODE_IDENT
             struct ast_node **Args;
             int ArgCount;
         } Call;

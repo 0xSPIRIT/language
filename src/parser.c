@@ -306,6 +306,11 @@ ast_node *_parse_type(parser *p, bool peeking) {
     ast_node *BaseNode = 0;
     ast_node *Prev     = 0;
 
+    if (peek(p)->Type == TOKEN_ELLIPSES) {
+        ast_node *Node = node(p, NODE_VARARG);
+        return Node;
+    }
+
     while (peek(p)->Type == TOKEN_OPEN_SQUARE || peek(p)->Type == TOKEN_STAR) {
         ast_node *New = 0;
 
@@ -666,7 +671,7 @@ ast_node *parse_statement(parser *p, node_type type) {
     return Node;
 }
 
-ast_node **get_params(parser *p, int *param_count) {
+ast_node **get_params(parser *p, int *param_count, bool *is_vararg) {
     ast_node **Result = 0;
 
     // Get parameter count
@@ -680,7 +685,13 @@ ast_node **get_params(parser *p, int *param_count) {
         while (peek(p)->Type != TOKEN_CLOSE_PAREN) {
             ParamCount++;
 
-            advance_type(p);
+            if (advance_type(p)->Type == TOKEN_ELLIPSES) {
+                *is_vararg = true;
+                ParamCount--;
+                consume(p, TOKEN_CLOSE_PAREN);
+                break;
+            }
+
             consume(p, TOKEN_IDENTIFIER);
 
             if (peek(p)->Type == TOKEN_COMMA) consume(p, TOKEN_COMMA);
@@ -755,7 +766,9 @@ ast_node *parse_function(parser *p) {
     ast_node *ReturnType = parse_type(p);
     token *FuncName      = consume(p, TOKEN_IDENTIFIER);
 
-    ast_node **Params = get_params(p, &ParamCount);
+    bool IsVarArg = false;
+
+    ast_node **Params = get_params(p, &ParamCount, &IsVarArg);
     ast_node *Body    = peek(p)->Type == TOKEN_END_STATEMENT ? nullptr : parse_block(p);
     ast_node *Root    = node(p, NODE_FUNC_DEF);
 
@@ -766,6 +779,7 @@ ast_node *parse_function(parser *p) {
     Root->FuncDef.Params     = Params;
     Root->FuncDef.ParamCount = ParamCount;
     Root->FuncDef.Body       = Body;
+    Root->FuncDef.IsVarArg   = IsVarArg;
 
     return Root;
 }
