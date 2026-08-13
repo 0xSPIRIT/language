@@ -267,7 +267,7 @@ operand emit_comparison(program_code *code, token_type Op, operand Left, operand
 
 operand get_string_lit_operand(program_code *code, string Label) {
     return (operand){
-        .Type = OPERAND_MEM, .Mem = {.IsAddress = true, .Base = REG_RIP, .Displacement = LabelDisplacement(Label)}
+        .Type = OPERAND_MEM, .Size = SIZE_64, .Mem = {.IsAddress = true, .Base = REG_RIP, .Displacement = LabelDisplacement(Label)}
     };
 }
 
@@ -612,9 +612,23 @@ operand emit_call(ast_node *node, program_code *code) {
         assert(false);
     }
 
+    func_data FuncData = node->Call.FuncName->Ident.Sym->Function;
+
+    const int FloatCount = 0;
+
     for (int i = node->Call.ArgCount - 1; i >= 0; i--) {
-        operand ArgI        = emit_expression(node->Call.Args[i], code);
-        int ExpectedArgSize = node->Call.FuncName->Ident.Sym->Function.Params[i]->TypeInfo.Size;
+        int ExpectedArgSize;
+        operand ArgI = emit_expression(node->Call.Args[i], code);
+
+        // Variadic?
+        if (i >= FuncData.ParamCount) {
+            ExpectedArgSize = ArgI.Size;
+
+            if (!ExpectedArgSize)
+                ExpectedArgSize = SIZE_64;
+        } else {
+            ExpectedArgSize = FuncData.Params[i]->TypeInfo.Size;
+        }
 
         if (ArgI.Size > 8) {
             emit_error("Function parameters must be at most 8 bytes large.");
@@ -623,6 +637,8 @@ operand emit_call(ast_node *node, program_code *code) {
 
         emit_move(code, Reg(ParamRegisters[i], ExpectedArgSize), ArgI);
     }
+
+    emit_move(code, Reg(REG_RAX, SIZE_8), Imm(FloatCount));
 
     emit(code, (asm_instruction){.Op = ASM_CALL, .Dst = LabelOperand(Name)});
 
@@ -1042,7 +1058,7 @@ char *register_name(memory_arena *Arena, register_id Reg, operand_size Size) {
 
 char *size_directive(operand_size size) {
     switch (size) {
-        case SIZE_NONE: return ""; // Used for LEA
+        case SIZE_NONE: return "";  // Used for LEA
         case SIZE_8:    return "BYTE PTR";
         case SIZE_16:   return "WORD PTR";
         case SIZE_32:   return "DWORD PTR";

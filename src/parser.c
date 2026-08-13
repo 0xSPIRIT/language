@@ -688,7 +688,6 @@ ast_node **get_params(parser *p, int *param_count, bool *is_vararg) {
             if (advance_type(p)->Type == TOKEN_ELLIPSES) {
                 *is_vararg = true;
                 ParamCount--;
-                consume(p, TOKEN_CLOSE_PAREN);
                 break;
             }
 
@@ -710,18 +709,22 @@ ast_node **get_params(parser *p, int *param_count, bool *is_vararg) {
     consume(p, TOKEN_OPEN_PAREN);
 
     while (peek(p)->Type != TOKEN_CLOSE_PAREN) {
-        ast_node *ParamType = parse_type(p);
-        token *ParamName    = consume(p, TOKEN_IDENTIFIER);
+        if (peek(p)->Type != TOKEN_ELLIPSES) {
+            ast_node *ParamType = parse_type(p);
+            token *ParamName    = consume(p, TOKEN_IDENTIFIER);
 
-        ast_node *Param = node(p, NODE_VAR_DECL);
+            ast_node *Param = node(p, NODE_VAR_DECL);
 
-        Param->VarDecl.Init = 0;
-        Param->VarDecl.Name = identifier(p, ParamName->String);
-        Param->VarDecl.Type = ParamType;
+            Param->VarDecl.Init = 0;
+            Param->VarDecl.Name = identifier(p, ParamName->String);
+            Param->VarDecl.Type = ParamType;
 
-        Result[i++] = Param;
+            Result[i++] = Param;
 
-        if (peek(p)->Type == TOKEN_COMMA) consume(p, TOKEN_COMMA);
+            if (peek(p)->Type == TOKEN_COMMA) consume(p, TOKEN_COMMA);
+        } else {
+            advance(p);
+        }
     }
 
     consume(p, TOKEN_CLOSE_PAREN);

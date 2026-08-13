@@ -158,9 +158,8 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             if (string_equals(Str, CSTR("..."))) {
                 Tokens[TokenCount++] = (token){TOKEN_ELLIPSES, Str};
                 i += 2;
+                continue;
             }
-
-            continue;
         }
 
         if (is_letter(ch) || ch == '_') {
