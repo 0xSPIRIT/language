@@ -4,11 +4,24 @@ int puts(*char string);
 *char strcpy(*char dest, *char src);
 int printf(*char format, ...);
 
-int main() {
-    // Issue; The stack isn't 16-aligned before function calls.
-    for (int i = 0; i < 10; i++) {
-        printf("%d ", i);
+void clrstr(*char str) *str = 0;
+
+void string_copy(*char dst, *char src, int count) {
+    for (int i = 0; i < count; i++) {
+        *(dst + i) = *(src + i);
     }
+
+    *(dst + count) = 0;
+}
+
+int main() {
+    *char test = "Hello there";
+    *char temp = malloc(100);
+
+    string_copy(temp, test, 11);
+
+    puts(test);
+    puts(temp);
 
     return 0;
 }

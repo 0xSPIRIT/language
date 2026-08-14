@@ -1,4 +1,4 @@
-[ ] Variadic arguments (for printf)
+[x] Variadic arguments (for printf)
 [ ] Implement arrays (stack allocated).
 [ ] Implement sizeof()
 [ ] Implement structs.

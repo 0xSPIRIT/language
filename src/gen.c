@@ -21,7 +21,7 @@
     (displacement) { .Type = DISPLACEMENT_LABEL, .Label = (label) }
 
 constexpr register_id ParamRegisters[]   = {REG_RDI, REG_RSI, REG_RDX, REG_RCX, REG_R8, REG_R9};
-constexpr register_id ScratchRegisters[] = {REG_RBX, REG_R12, REG_R13, REG_R14, REG_R15};
+constexpr register_id ScratchRegisters[] = {REG_RBX, REG_R10, REG_R11, REG_R12, REG_R13, REG_R14, REG_R15};
 
 int NextFreeRegister = 0;
 
@@ -126,19 +126,16 @@ size_t total_param_bytes(symbol *FuncSym) {
     return Result;
 }
 
-asm_instruction *emit_function_prologue(program_code *code, size_t frame_size) {
-    // TODO: If the function is a leaf function, account for 128 byte redzone?
-    size_t AlignedSize = 16 * (frame_size / 16 + (frame_size % 16 > 0));
-
+asm_instruction *emit_function_prologue(program_code *code, asm_instruction **SubRspInstruction) {
     asm_instruction Instructions[] = {
         {.Op = ASM_PUSH, .Dst = Rbp},
         {.Op = ASM_MOV, .Dst = Rbp, .Src = Rsp},
-        {.Op = ASM_SUB, .Dst = Rsp, .Src = Imm(AlignedSize)},
+        {.Op = ASM_SUB, .Dst = Rsp, .Src = Imm(0)},
     };
 
     int Count = ArraySize(Instructions);
 
-    if (AlignedSize == 0) Count--;
+    *SubRspInstruction = (asm_instruction *)code->InstructionArena.Data + code->InstructionCount + 2;
 
     emit_count(code, Instructions, Count);
 
@@ -199,6 +196,7 @@ void emit_function_epilogue(program_code *code) {
     };
 
     emit_label(code, function_end_label(code));
+    emit_free_all_scratch_registers(code);
     emit_count(code, Instructions, ArraySize(Instructions));
 }
 
@@ -267,7 +265,9 @@ operand emit_comparison(program_code *code, token_type Op, operand Left, operand
 
 operand get_string_lit_operand(program_code *code, string Label) {
     return (operand){
-        .Type = OPERAND_MEM, .Size = SIZE_64, .Mem = {.IsAddress = true, .Base = REG_RIP, .Displacement = LabelDisplacement(Label)}
+        .Type = OPERAND_MEM,
+        .Size = SIZE_64,
+        .Mem  = {.IsAddress = true, .Base = REG_RIP, .Displacement = LabelDisplacement(Label)}
     };
 }
 
@@ -275,7 +275,10 @@ void emit_lea(program_code *code, operand DstReg, operand SrcMem) {
     assert(DstReg.Type == OPERAND_REG);
     assert(SrcMem.Type == OPERAND_MEM);
 
+    // Since LEA can be called from emit_mov, the sizes might not be correct.
+
     SrcMem.Size = 0;
+    DstReg.Size = 8;
 
     emit(code, (asm_instruction){.Op = ASM_LEA, .Dst = DstReg, .Src = SrcMem});
 }
@@ -468,7 +471,6 @@ bool is_pointer_math_op(program_code *code, ast_node *Node) {
     type_info B = get_type_info_from_operand(Node->BinaryOp.Right);
 
     if (A.IndirectionDepth > 0 && B.IndirectionDepth > 0) return false;
-
     if (A.IndirectionDepth > 0 || B.IndirectionDepth > 0) return true;
 
     return false;
@@ -501,7 +503,15 @@ operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
                     operand Ptr = TypeInfoLeft.IndirectionDepth > 0 ? Left : Right;
                     operand Off = TypeInfoLeft.IndirectionDepth > 0 ? Right : Left;
 
-                    Off.Imm.Value *= TypeInfo.PointingTo->Size;
+                    int ElemSize = TypeInfo.PointingTo->Size;
+
+                    if (ElemSize > 1) {
+                        if (Off.Type == OPERAND_IMM) {
+                            Off.Imm.Value *= ElemSize;
+                        } else {
+                            Off = emit_math(code, TOKEN_STAR, Off, Imm(ElemSize));
+                        }
+                    }
 
                     // Move result into rax
                     emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
@@ -510,7 +520,7 @@ operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
 
                     operand Src = Off;
 
-                    if (Off.Size != SIZE_64) {
+                    if (Off.Type != OPERAND_IMM && Off.Size != SIZE_64) {
                         // move (sign extended) into temp register
                         operand Tmp = scratch_register(SIZE_64);
                         emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Tmp, .Src = Off});
@@ -555,7 +565,7 @@ operand emit_dereference(program_code *code, ast_node *OperandNode) {
 
         Dst.Type          = OPERAND_MEM;
         Dst.Size          = TypeInfo.PointingTo->Size;
-        Dst.Mem.IsAddress = true;
+        Dst.Mem.IsAddress = false;
         Dst.Mem.Base      = REG_RAX;
 
         return Dst;
@@ -624,8 +634,7 @@ operand emit_call(ast_node *node, program_code *code) {
         if (i >= FuncData.ParamCount) {
             ExpectedArgSize = ArgI.Size;
 
-            if (!ExpectedArgSize)
-                ExpectedArgSize = SIZE_64;
+            if (!ExpectedArgSize) ExpectedArgSize = SIZE_64;
         } else {
             ExpectedArgSize = FuncData.Params[i]->TypeInfo.Size;
         }
@@ -720,6 +729,7 @@ operand emit_expression(ast_node *node, program_code *code) {
 operand scratch_register(operand_size size) {
     if (NextFreeRegister >= ArraySize(ScratchRegisters)) {
         emit_error("Expression too complex, ran out of scratch registers.");
+        assert(false);
         return (operand){};
     }
 
@@ -835,27 +845,30 @@ void emit_statement(ast_node *node, program_code *code) {
             size_t local_size = Name->Ident.Sym->TypeInfo.Size;
             size_t frame_size = local_size + total_param_bytes(Name->Ident.Sym);
 
-            bool is_main = string_equals(Name->Ident.Name, CSTR("main"));
+            string_equals(Name->Ident.Name, CSTR("main"));
 
             emit_function_label(code, Name->Ident.Name);
 
-            asm_instruction *Scratch = emit_function_prologue(code, frame_size);
+            asm_instruction *SubRspInstr;
+            asm_instruction *Scratch = emit_function_prologue(code, &SubRspInstr);
 
             emit_spill_params(code, Name->Ident.Sym, local_size);
 
             emit_statement(node->FuncDef.Body, code);
 
+            // Backfill the scratch regsiters
             for (int i = 0; i < NextFreeRegister; i++) {
                 Scratch[i] = (asm_instruction){.Op = ASM_PUSH, .Dst = Reg(ScratchRegisters[i], SIZE_64)};
             }
 
-            emit_free_all_scratch_registers(code);
+            // Backfill the local size, ensuring % 16 == 8.
+            int LogicalFrameSize = frame_size + NextFreeRegister * 8;
 
-            if (is_main) {
-                emit_program_epilogue(code);
-            } else {
-                emit_function_epilogue(code);
-            }
+            if (LogicalFrameSize % 16 > 0) frame_size += 16 - LogicalFrameSize % 16;
+
+            SubRspInstr->Src.Imm.Value = frame_size;
+
+            emit_function_epilogue(code);
 
             break;
         }

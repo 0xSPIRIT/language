@@ -113,7 +113,7 @@ typedef struct {
         } Imm;
 
         struct {
-            bool IsAddress; // If true, LEA, otherwise MOV
+            bool IsAddress;  // If true, LEA, otherwise MOV
             register_id Base;
             register_id Index;
             int Scale;
@@ -179,6 +179,6 @@ operand emit_expression(ast_node *node, program_code *code);
 operand scratch_register(operand_size size);
 void free_scratch_register(operand Op);
 void emit_move(program_code *code, operand Dst, operand Src);
-
 bool is_pointer_math_op(program_code *code, ast_node *Node);
 operand emit_pointer_math_op(program_code *code, ast_node *Operand);
+void emit_free_all_scratch_registers(program_code *code);
