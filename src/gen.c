@@ -23,7 +23,8 @@
 constexpr register_id ParamRegisters[]   = {REG_RDI, REG_RSI, REG_RDX, REG_RCX, REG_R8, REG_R9};
 constexpr register_id ScratchRegisters[] = {REG_RBX, REG_R10, REG_R11, REG_R12, REG_R13, REG_R14, REG_R15};
 
-int NextFreeRegister = 0;
+int NextFreeRegister        = 0;
+int MaxScratchRegistersUsed = 0;
 
 void emit_error(const char *format, ...) {
     va_list Args;
@@ -222,6 +223,7 @@ void emit_cmp(program_code *code, operand Left, operand Right) {
         operand Tmp = scratch_register(Left.Size);
         emit_move(code, Tmp, Left);
         emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Tmp, .Src = Right});
+        free_scratch_register();
     } else {
         emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Left, .Src = Right});
     }
@@ -229,15 +231,19 @@ void emit_cmp(program_code *code, operand Left, operand Right) {
 
 void emit_test(program_code *code, operand A, operand B) {
     operand Tmp;
+    bool UsedScratch = false;
 
     if (A.Type != OPERAND_REG) {
         Tmp = scratch_register(A.Size);
         emit_move(code, Tmp, A);
-        A = Tmp;
-        B = Tmp;
+        A           = Tmp;
+        B           = Tmp;
+        UsedScratch = true;
     }
 
     emit(code, (asm_instruction){.Op = ASM_TEST, .Dst = A, .Src = B});
+
+    if (UsedScratch) free_scratch_register();
 }
 
 void emit_je(program_code *code, string Label) {
@@ -304,6 +310,7 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
     }
 
     operand Tmp;
+    bool UsedScratch = false;
 
     if (MathOp == ASM_IDIV) {
         emit_move(code, Reg(REG_RAX, Size), Left);
@@ -314,7 +321,8 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
         if (Right.Type == OPERAND_IMM) {
             Tmp = scratch_register(Size);
             emit_move(code, Tmp, Right);
-            Right = Tmp;
+            Right       = Tmp;
+            UsedScratch = true;
         }
 
         emit(code, (asm_instruction){.Op = ASM_IDIV, .Dst = Right});
@@ -322,10 +330,15 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
         if (Right.Type == OPERAND_REG && Right.Reg.Register == REG_RAX) {
             Tmp = scratch_register(Size);
             emit_move(code, Tmp, Right);
-            Right = Tmp;
+            Right       = Tmp;
+            UsedScratch = true;
         }
         emit_move(code, Reg(REG_RAX, Size), Left);
         emit(code, (asm_instruction){.Op = MathOp, .Dst = Reg(REG_RAX, Size), .Src = Right});
+    }
+
+    if (UsedScratch) {
+        free_scratch_register();
     }
 
     return Reg(REG_RAX, Size);
@@ -348,11 +361,14 @@ operand emit_binop(ast_node *node, program_code *code) {
     operand Left = emit_expression(node->BinaryOp.Left, code);
 
     operand SafeLeft;
+    bool UsedScratch = false;
 
     if (Left.Type == OPERAND_REG && Left.Reg.Register == REG_RAX && expr_may_clobber_rax(node->BinaryOp.Right)) {
         SafeLeft = scratch_register(Left.Size);
         emit_move(code, SafeLeft, Left);
         Left = SafeLeft;
+
+        UsedScratch = true;
     }
 
     operand Right = emit_expression(node->BinaryOp.Right, code);
@@ -399,6 +415,8 @@ operand emit_binop(ast_node *node, program_code *code) {
         }
     }
 
+    if (UsedScratch) free_scratch_register();
+
     return Result;
 }
 
@@ -423,10 +441,8 @@ operand emit_inc_dec(program_code *Code, ast_node *Node, bool Increment, bool Pr
         return (operand){};
     }
 
-    operand Temp = scratch_register(Var.Size);
-
     if (!Prefix) {
-        emit_move(Code, Temp, Var);
+        emit_move(Code, Reg(REG_RAX, Var.Size), Var);
     }
 
     operand Right = Imm(1);
@@ -435,7 +451,7 @@ operand emit_inc_dec(program_code *Code, ast_node *Node, bool Increment, bool Pr
 
     emit_move(Code, Var, Result);
 
-    return Prefix ? Var : Temp;
+    return Prefix ? Var : Reg(REG_RAX, Var.Size);
 }
 
 // Get type info of a pointer from pointer arithmetic binary operation
@@ -445,7 +461,8 @@ type_info get_type_info_from_operand(ast_node *Node) {
     switch (Node->Type) {
         case NODE_IDENT:     Result = Node->Ident.Sym->TypeInfo; break;
         case NODE_BINARY_OP: {
-            if (Node->BinaryOp.Operation != TOKEN_PLUS) emit_error("Pointer math can only be done with addition.");
+            token_type Op = Node->BinaryOp.Operation;
+            if (Op != TOKEN_PLUS && Op != TOKEN_MINUS) return Result;
 
             type_info A = get_type_info_from_operand(Node->BinaryOp.Left);
             type_info B = get_type_info_from_operand(Node->BinaryOp.Right);
@@ -486,15 +503,19 @@ operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
             emit_move(code, Reg(REG_RAX, SIZE_64), Mem);
             return Reg(REG_RAX, SIZE_64);
         }
+        case NODE_UNARY_OP: {
+            token_type Operation = Operand->UnaryOp.Operation;
+
+            if (Operation == TOKEN_INC || Operation == TOKEN_DEC) {
+            }
+            break;
+        }
         case NODE_BINARY_OP: {
             token_type Operation = Operand->BinaryOp.Operation;
 
             switch (Operation) {
                 case TOKEN_PLUS:
                 case TOKEN_MINUS: {
-                    // Right now I've only hardcoded ptr + n syntax. But ptr + n1 + n2 + ... should be valid too, no?
-                    // Not really a high priority for me though, so I'm leaving it so.
-
                     operand Left  = emit_expression(Operand->BinaryOp.Left, code);
                     operand Right = emit_expression(Operand->BinaryOp.Right, code);
 
@@ -505,32 +526,97 @@ operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
 
                     int ElemSize = TypeInfo.PointingTo->Size;
 
-                    if (ElemSize > 1) {
-                        if (Off.Type == OPERAND_IMM) {
-                            Off.Imm.Value *= ElemSize;
+                    if (Off.Type == OPERAND_IMM) {
+                        int Disp = Off.Imm.Value * ElemSize;
+
+                        if (Operation == TOKEN_MINUS) Disp *= -1;
+
+                        emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
+
+                        emit_lea(code,
+                                 Reg(REG_RAX, SIZE_64),
+                                 (operand){
+                                     .Type = OPERAND_MEM,
+                                     .Mem  = {.Base         = REG_RAX,
+                                              .Displacement = {.Type = DISPLACEMENT_CONSTANT, .Value = Disp}}
+                        });
+
+                        return Reg(REG_RAX, SIZE_64);
+                    } else if (Off.Type == OPERAND_REG &&
+                               (ElemSize == 1 || ElemSize == 2 || ElemSize == 4 || ElemSize == 8)) {
+                        if (Operation == TOKEN_MINUS) emit(code, (asm_instruction){.Op = ASM_NEG, .Dst = Off});
+
+                        if (Off.Reg.Register == REG_RAX) {
+                            // move the result out from rax, since we need rax to store the ptr
+                            operand Scratch = scratch_register(SIZE_64);  // increase to 64-bit
+
+                            if (Off.Size < SIZE_64)
+                                emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Scratch, .Src = Off});
+                            else
+                                emit_move(code, Scratch, Off);
+
+                            emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
+
+                            emit_lea(code,
+                                     Reg(REG_RAX, SIZE_64),
+                                     (operand){
+                                         .Type = OPERAND_MEM,
+                                         .Mem  = {.Base = REG_RAX, .Index = Scratch.Reg.Register, .Scale = ElemSize}
+                            });
+
+                            free_scratch_register();
                         } else {
+                            emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
+
+                            emit_lea(code,
+                                     Reg(REG_RAX, SIZE_64),
+                                     (operand){
+                                         .Type = OPERAND_MEM,
+                                         .Mem  = {.Base = REG_RAX, .Index = Off.Reg.Register, .Scale = ElemSize}
+                            });
+                        }
+
+                        return Reg(REG_RAX, SIZE_64);
+                    } else {
+                        assert(Off.Type == OPERAND_MEM);
+
+                        asm_opcode Opcode = Operation == TOKEN_PLUS ? ASM_ADD : ASM_SUB;
+
+                        // (imul) Multiply offset by ElemSize
+                        if (ElemSize > 1) {
                             Off = emit_math(code, TOKEN_STAR, Off, Imm(ElemSize));
+
+                            // move the result out from rax, since we need rax to store the ptr
+                            operand Scratch = scratch_register(SIZE_64);  // increase to 64-bit
+
+                            if (Off.Size < SIZE_64)
+                                emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Scratch, .Src = Off});
+                            else
+                                emit_move(code, Scratch, Off);
+
+                            emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
+
+                            emit(code, (asm_instruction){.Op = Opcode, .Dst = Reg(REG_RAX, SIZE_64), .Src = Scratch});
+
+                            free_scratch_register();
+
+                            return Reg(REG_RAX, SIZE_64);
+                        } else {
+                            emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
+
+                            if (Off.Size < SIZE_64) {
+                                operand Scratch = scratch_register(SIZE_64);
+                                emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Scratch, .Src = Off});
+                                emit(code,
+                                     (asm_instruction){.Op = Opcode, .Dst = Reg(REG_RAX, SIZE_64), .Src = Scratch});
+                                free_scratch_register();
+                            } else {
+                                emit(code, (asm_instruction){.Op = Opcode, .Dst = Reg(REG_RAX, SIZE_64), .Src = Off});
+                            }
+
+                            return Reg(REG_RAX, SIZE_64);
                         }
                     }
-
-                    // Move result into rax
-                    emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
-
-                    asm_opcode Opcode = Operation == TOKEN_PLUS ? ASM_ADD : ASM_SUB;
-
-                    operand Src = Off;
-
-                    if (Off.Type != OPERAND_IMM && Off.Size != SIZE_64) {
-                        // move (sign extended) into temp register
-                        operand Tmp = scratch_register(SIZE_64);
-                        emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Tmp, .Src = Off});
-                        Src = Tmp;
-                    }
-
-                    emit(code, (asm_instruction){.Op = Opcode, .Dst = Reg(REG_RAX, SIZE_64), .Src = Src});
-
-                    return Reg(REG_RAX, SIZE_64);
-                    break;
                 }
                 default: {
                     // TODO: Error message
@@ -661,7 +747,8 @@ operand emit_call(ast_node *node, program_code *code) {
     return Reg(REG_RAX, ReturnSize);
 }
 
-// Emit instructions and generate a resulting operand
+// Emit instructions and generate a resulting operand:
+// Returns: either RAX, MEM, or IMM
 operand emit_expression(ast_node *node, program_code *code) {
     operand Result = {};
 
@@ -733,16 +820,28 @@ operand scratch_register(operand_size size) {
         return (operand){};
     }
 
-    return Reg(ScratchRegisters[NextFreeRegister++], size);
+    NextFreeRegister++;
+
+    if (NextFreeRegister > MaxScratchRegistersUsed) {
+        MaxScratchRegistersUsed = NextFreeRegister;
+    }
+
+    return Reg(ScratchRegisters[NextFreeRegister - 1], size);
+}
+
+void free_scratch_register(void) {
+    assert(NextFreeRegister > 0);
+    NextFreeRegister--;
 }
 
 void emit_free_all_scratch_registers(program_code *code) {
-    for (int i = NextFreeRegister - 1; i >= 0; i--) {
+    for (int i = MaxScratchRegistersUsed - 1; i >= 0; i--) {
         asm_instruction Instr = {.Op = ASM_POP, .Dst = Reg(ScratchRegisters[i], SIZE_64)};
         emit(code, Instr);
     }
 
-    NextFreeRegister = 0;
+    assert(NextFreeRegister == 0);
+    MaxScratchRegistersUsed = 0;
 }
 
 void emit_move(program_code *code, operand Dst, operand Src) {
@@ -765,6 +864,7 @@ void emit_move(program_code *code, operand Dst, operand Src) {
             operand Tmp = scratch_register(Src.Size);
             emit_lea(code, Tmp, Src);
             emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Tmp});
+            free_scratch_register();
         }
 
         return;
@@ -781,6 +881,7 @@ void emit_move(program_code *code, operand Dst, operand Src) {
         operand Tmp = scratch_register(Dst.Size);
         emit(code, (asm_instruction){.Op = Op, .Dst = Tmp, .Src = Src});
         emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Tmp});
+        free_scratch_register();
     } else {
         emit(code, (asm_instruction){.Op = Op, .Dst = Dst, .Src = Src});
     }
@@ -857,7 +958,7 @@ void emit_statement(ast_node *node, program_code *code) {
             emit_statement(node->FuncDef.Body, code);
 
             // Backfill the scratch regsiters
-            for (int i = 0; i < NextFreeRegister; i++) {
+            for (int i = 0; i < MaxScratchRegistersUsed; i++) {
                 Scratch[i] = (asm_instruction){.Op = ASM_PUSH, .Dst = Reg(ScratchRegisters[i], SIZE_64)};
             }
 
@@ -1084,7 +1185,9 @@ char *size_directive(operand_size size) {
 void print_mem(memory_arena *Arena, FILE *out, operand op) {
     char *SizeDirective = size_directive(op.Size);
     fprintf(out, "%s%s[%s", SizeDirective, SizeDirective[0] ? " " : "", register_name(Arena, op.Mem.Base, SIZE_64));
-    if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(Arena, op.Mem.Index, op.Size), op.Mem.Scale);
+
+    int RegSize = op.Size > 0 ? op.Size : 8;
+    if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(Arena, op.Mem.Index, RegSize), op.Mem.Scale);
 
     displacement Disp = op.Mem.Displacement;
 
@@ -1178,9 +1281,10 @@ void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in) {
 
             print_operand(Arena, out, in->Dst);
 
-            if (in->Op == ASM_CALL || in->Op == ASM_IDIV || in->Op == ASM_SETL || in->Op == ASM_SETG ||
-                in->Op == ASM_SETLE || in->Op == ASM_SETGE || in->Op == ASM_JE || in->Op == ASM_JMP ||
-                in->Op == ASM_PUSH || in->Op == ASM_POP || in->Op == ASM_SETNE || in->Op == ASM_SETE)
+            if (in->Op == ASM_NEG || in->Op == ASM_CALL || in->Op == ASM_IDIV || in->Op == ASM_SETL ||
+                in->Op == ASM_SETG || in->Op == ASM_SETLE || in->Op == ASM_SETGE || in->Op == ASM_JE ||
+                in->Op == ASM_JMP || in->Op == ASM_PUSH || in->Op == ASM_POP || in->Op == ASM_SETNE ||
+                in->Op == ASM_SETE)
                 break;
 
             fprintf(out, ", ");

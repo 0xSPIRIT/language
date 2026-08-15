@@ -3,25 +3,16 @@ int puts(*char string);
 *void memcpy(*void dest, *void src, uint64 n);
 *char strcpy(*char dest, *char src);
 int printf(*char format, ...);
-
-void clrstr(*char str) *str = 0;
-
-void string_copy(*char dst, *char src, int count) {
-    for (int i = 0; i < count; i++) {
-        *(dst + i) = *(src + i);
-    }
-
-    *(dst + count) = 0;
-}
+uint64 strlen(*char string);
+int putchar(int ch);
 
 int main() {
-    *char test = "Hello there";
-    *char temp = malloc(100);
+    *char string = "ABCD";
 
-    string_copy(temp, test, 11);
+    char output = *(string + (3-1));
 
-    puts(test);
-    puts(temp);
+    putchar(output);
+    putchar(10);
 
     return 0;
 }

@@ -1,0 +1,5 @@
+When doing complex things like handling different cases for
+the codegen, doing things in separate if statements is good,
+rather than doing everything in one block with conditionals
+spurred in everywhere -- it's better to separate them into
+different cases altogether.

@@ -177,7 +177,7 @@ void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in);
 void emit_statement(ast_node *node, program_code *code);
 operand emit_expression(ast_node *node, program_code *code);
 operand scratch_register(operand_size size);
-void free_scratch_register(operand Op);
+void free_scratch_register();
 void emit_move(program_code *code, operand Dst, operand Src);
 bool is_pointer_math_op(program_code *code, ast_node *Node);
 operand emit_pointer_math_op(program_code *code, ast_node *Operand);

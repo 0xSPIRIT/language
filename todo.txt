@@ -1,4 +1,7 @@
 [x] Variadic arguments (for printf)
+[ ] Improve scratch register usage
+[ ] Improve stack size calculation; two for loops with i adds two ints instead of just 1
+[ ] Use LEA addressing modes scale for dereference / addressof
 [ ] Implement arrays (stack allocated).
 [ ] Implement sizeof()
 [ ] Implement structs.
