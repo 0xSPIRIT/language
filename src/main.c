@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
 
         FILE *Out;
 
-        Out = fopen("test.s", "w+");
+        Out = fopen("test.s", "w");
 
         program_code Program = gen_program_code(Out, &Arena, Tree);
 

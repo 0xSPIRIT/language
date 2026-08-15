@@ -6,13 +6,23 @@ int printf(*char format, ...);
 uint64 strlen(*char string);
 int putchar(int ch);
 
+void string_copy(*char dst, *char src) {
+    while (*src) {
+        *dst = *src;
+        src++;
+        dst++;
+    }
+    *dst = 0;
+}
+
 int main() {
-    *char string = "ABCD";
+    *char source = "ABCD";
+    *char dest = malloc(100);
 
-    char output = *(string + (3-1));
+    string_copy(dest, source);
 
-    putchar(output);
-    putchar(10);
+    puts(source);
+    puts(dest);
 
     return 0;
 }

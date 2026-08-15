@@ -503,13 +503,6 @@ operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
             emit_move(code, Reg(REG_RAX, SIZE_64), Mem);
             return Reg(REG_RAX, SIZE_64);
         }
-        case NODE_UNARY_OP: {
-            token_type Operation = Operand->UnaryOp.Operation;
-
-            if (Operation == TOKEN_INC || Operation == TOKEN_DEC) {
-            }
-            break;
-        }
         case NODE_BINARY_OP: {
             token_type Operation = Operand->BinaryOp.Operation;
 
