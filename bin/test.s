@@ -6,36 +6,11 @@
 .section .text
 .global main
 
-string_copy:
+nop:
   push rbp
   mov rbp, rsp
-  sub rsp, 16
-  push rbx
-  mov QWORD PTR [rbp - 8], rdi
-  mov QWORD PTR [rbp - 16], rsi
-L0:
-  mov rax, QWORD PTR [rbp - 16]
-  mov bl, BYTE PTR [rax]
-  test bl, bl
-  je L1
-  mov rax, QWORD PTR [rbp - 16]
-  mov rax, QWORD PTR [rbp - 8]
-  mov bl, BYTE PTR [rax]
-  mov BYTE PTR [rax], bl
-  mov rax, QWORD PTR [rbp - 16]
-  mov rax, QWORD PTR [rbp - 16]
-  add rax, 1
-  mov QWORD PTR [rbp - 16], rax
-  mov rax, QWORD PTR [rbp - 8]
-  mov rax, QWORD PTR [rbp - 8]
-  add rax, 1
-  mov QWORD PTR [rbp - 8], rax
-  jmp L0
-L1:
-  mov rax, QWORD PTR [rbp - 8]
-  mov BYTE PTR [rax], 0
-Lend_string_copy:
-  pop rbx
+  sub rsp, 0
+Lend_nop:
   mov rsp, rbp
   pop rbp
   ret 
@@ -46,17 +21,23 @@ main:
   push rbx
   lea rbx, [rip + .LS1]
   mov QWORD PTR [rbp - 8], rbx
-  mov rdi, 100
+  mov rdi, 50
   mov al, 0
   call malloc
   mov QWORD PTR [rbp - 16], rax
   mov rsi, QWORD PTR [rbp - 8]
   mov rdi, QWORD PTR [rbp - 16]
   mov al, 0
-  call string_copy
-  mov rdi, QWORD PTR [rbp - 8]
+  call strcpy
   mov al, 0
-  call puts
+  call nop
+  mov rax, QWORD PTR [rbp - 8]
+  lea rax, [rax + 1]
+  mov rax, QWORD PTR [rbp - 16]
+  mov bl, BYTE PTR [rax]
+  mov BYTE PTR [rax], bl
+  mov al, 0
+  call nop
   mov rdi, QWORD PTR [rbp - 16]
   mov al, 0
   call puts

@@ -6,23 +6,16 @@ int printf(*char format, ...);
 uint64 strlen(*char string);
 int putchar(int ch);
 
-void string_copy(*char dst, *char src) {
-    while (*src) {
-        *dst = *src;
-        src++;
-        dst++;
-    }
-    *dst = 0;
-}
+void nop() {}
 
 int main() {
     *char source = "ABCD";
-    *char dest = malloc(100);
-
-    string_copy(dest, source);
-
-    puts(source);
-    puts(dest);
+    *char dst = malloc(50);
+    strcpy(dst, source);
+    nop();
+    *dst = *(source+1); // The issue is that RAX is getting clobbered and it isn't using a scratch register.
+    nop();
+    puts(dst);
 
     return 0;
 }

@@ -445,11 +445,8 @@ operand emit_inc_dec(program_code *Code, ast_node *Node, bool Increment, bool Pr
         emit_move(Code, Reg(REG_RAX, Var.Size), Var);
     }
 
-    operand Right = Imm(1);
-
-    operand Result = emit_math(Code, Increment ? TOKEN_PLUS : TOKEN_MINUS, Var, Right);
-
-    emit_move(Code, Var, Result);
+    asm_opcode Op = Increment ? ASM_ADD : ASM_SUB;
+    emit(Code, (asm_instruction){.Op = Op, .Dst = Var, .Src = Imm(1)});
 
     return Prefix ? Var : Reg(REG_RAX, Var.Size);
 }
@@ -526,13 +523,12 @@ operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
 
                         emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
 
-                        emit_lea(code,
-                                 Reg(REG_RAX, SIZE_64),
-                                 (operand){
-                                     .Type = OPERAND_MEM,
-                                     .Mem  = {.Base         = REG_RAX,
-                                              .Displacement = {.Type = DISPLACEMENT_CONSTANT, .Value = Disp}}
-                        });
+                        operand Mem = {
+                            .Type = OPERAND_MEM,
+                            .Mem  = {.Base = REG_RAX, .Displacement = {.Type = DISPLACEMENT_CONSTANT, .Value = Disp}}
+                        };
+
+                        emit_lea(code, Reg(REG_RAX, SIZE_64), Mem);
 
                         return Reg(REG_RAX, SIZE_64);
                     } else if (Off.Type == OPERAND_REG &&
@@ -550,12 +546,12 @@ operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
 
                             emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
 
-                            emit_lea(code,
-                                     Reg(REG_RAX, SIZE_64),
-                                     (operand){
-                                         .Type = OPERAND_MEM,
-                                         .Mem  = {.Base = REG_RAX, .Index = Scratch.Reg.Register, .Scale = ElemSize}
-                            });
+                            operand Mem = {
+                                .Type = OPERAND_MEM,
+                                .Mem  = {.Base = REG_RAX, .Index = Scratch.Reg.Register, .Scale = ElemSize}
+                            };
+
+                            emit_lea(code, Reg(REG_RAX, SIZE_64), Mem);
 
                             free_scratch_register();
                         } else {
@@ -619,8 +615,15 @@ operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
             }
             break;
         }
+        case TOKEN_INC: {
+            return emit_inc_dec(code, Operand, true, Operand->UnaryOp.First);
+        }
+        case TOKEN_DEC: {
+            return emit_inc_dec(code, Operand, false, Operand->UnaryOp.First);
+        }
         default: {
             // TODO: Error message
+            printf("Got %d\n", Operand->Type);
             assert(false);
             break;
         }
@@ -803,6 +806,8 @@ operand emit_expression(ast_node *node, program_code *code) {
         }
     }
 
+    if (Result.Type == OPERAND_REG) assert(Result.Reg.Register == REG_RAX);
+
     return Result;
 }
 
@@ -979,9 +984,23 @@ void emit_statement(ast_node *node, program_code *code) {
             switch (node->BinaryOp.Operation) {
                 case TOKEN_EQUALS: {
                     operand Src = emit_expression(Right, code);
+
+                    operand Temp     = Src;
+                    bool UsedScratch = false;
+
+                    if (Src.Type == OPERAND_REG) {
+                        Temp = scratch_register(Src.Size);
+                        emit_move(code, Temp, Src);
+                        UsedScratch = true;
+                    }
+
                     operand Dst = emit_expression(Left, code);
 
-                    emit_move(code, Dst, Src);
+                    emit_move(code, Dst, Temp);
+
+                    if (UsedScratch) {
+                        free_scratch_register();
+                    }
                     break;
                 }
                 default: {
