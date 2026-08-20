@@ -1,7 +1,8 @@
 .intel_syntax noprefix
 
 .section .rodata
-.LS1: .asciz "ABCD"
+.LS1: .asciz "We got %d arguments!\n"
+.LS2: .asciz "%d "
 
 .section .text
 .global main
@@ -17,31 +18,73 @@ Lend_nop:
 main:
   push rbp
   mov rbp, rsp
-  sub rsp, 16
+  sub rsp, 32
   push rbx
-  lea rbx, [rip + .LS1]
-  mov QWORD PTR [rbp - 8], rbx
-  mov rdi, 50
-  mov al, 0
+  mov DWORD PTR [rbp - 24], edi
+  mov QWORD PTR [rbp - 32], rsi
+  mov eax, DWORD PTR [rbp - 24]
+  sub eax, 1
+  mov DWORD PTR [rbp - 4], eax
+  mov eax, DWORD PTR [rbp - 4]
+  imul eax, 4
+  mov edi, eax
   call malloc
-  mov QWORD PTR [rbp - 16], rax
-  mov rsi, QWORD PTR [rbp - 8]
-  mov rdi, QWORD PTR [rbp - 16]
-  mov al, 0
-  call strcpy
-  mov al, 0
-  call nop
-  mov rax, QWORD PTR [rbp - 8]
-  lea rax, [rax + 1]
-  mov rax, QWORD PTR [rbp - 16]
-  mov bl, BYTE PTR [rax]
-  mov BYTE PTR [rax], bl
-  mov al, 0
-  call nop
-  mov rdi, QWORD PTR [rbp - 16]
-  mov al, 0
-  call puts
-  mov eax, 0
+  mov QWORD PTR [rbp - 12], rax
+  mov esi, DWORD PTR [rbp - 4]
+  lea rdi, [rip + .LS1]
+  xor al, al
+  call printf
+  mov DWORD PTR [rbp - 16], 1
+L0:
+  mov ebx, DWORD PTR [rbp - 16]
+  cmp ebx, DWORD PTR [rbp - 24]
+  setl al
+  movzx eax, al
+  test eax, eax
+  je L1
+  mov eax, DWORD PTR [rbp - 16]
+  imul eax, 8
+  movsx rbx, eax
+  mov rax, QWORD PTR [rbp - 32]
+  add rax, rbx
+  mov rdi, QWORD PTR [rax]
+  call atoi
+  mov eax, DWORD PTR [rbp - 16]
+  sub eax, 1
+  mov eax, DWORD PTR [rbp - 16]
+  sub eax, 1
+  movsx rbx, eax
+  mov rax, QWORD PTR [rbp - 12]
+  lea rax, [rax + rbx*4]
+  mov DWORD PTR [rax], eax
+L2:
+  mov eax, DWORD PTR [rbp - 16]
+  add DWORD PTR [rbp - 16], 1
+  jmp L0
+L1:
+  mov DWORD PTR [rbp - 20], 0
+L3:
+  mov ebx, DWORD PTR [rbp - 20]
+  cmp ebx, DWORD PTR [rbp - 4]
+  setl al
+  movzx eax, al
+  test eax, eax
+  je L4
+  mov eax, DWORD PTR [rbp - 20]
+  imul eax, 4
+  movsx rbx, eax
+  mov rax, QWORD PTR [rbp - 12]
+  add rax, rbx
+  mov esi, DWORD PTR [rax]
+  lea rdi, [rip + .LS2]
+  xor al, al
+  call printf
+L5:
+  mov eax, DWORD PTR [rbp - 20]
+  add DWORD PTR [rbp - 20], 1
+  jmp L3
+L4:
+  mov eax, 67
   jmp Lend_main
 Lend_main:
   pop rbx

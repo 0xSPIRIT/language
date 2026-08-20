@@ -137,6 +137,21 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             continue;
         }
 
+        // Preprocessor include
+        if (ch == '#') {
+            i++;
+
+            const string Include = CSTR("include");
+            string Str = { code.Data + i, Include.Length };
+
+            if (string_equals(Str, Include)) {
+                Tokens[TokenCount++] = (token){TOKEN_INCLUDE, Str};
+                i += Include.Length;
+            }
+
+            continue;
+        }
+
         if (ch == '\n') {
             Col = 1;
             Line++;
@@ -158,6 +173,17 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             Tokens[TokenCount++] = tok;
 
             continue;
+        }
+
+        string Sizeof = CSTR("sizeof");
+        if (i + Sizeof.Length < code.Length) {
+            string Str = {code.Data + i, Sizeof.Length};
+
+            if (string_equals(Str, Sizeof)) {
+                Tokens[TokenCount++] = (token){TOKEN_SIZEOF, Str};
+                i += Sizeof.Length - 1;
+                continue;
+            }
         }
 
         if (i + 2 < code.Length) {

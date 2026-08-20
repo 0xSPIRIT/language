@@ -29,6 +29,10 @@ typedef enum {
 
     TOKEN_ELLIPSES,
 
+    TOKEN_SIZEOF,
+
+    TOKEN_INCLUDE,
+
     TOKEN_AMP           = '&',
     TOKEN_DOT           = '.',
     TOKEN_PERCENT       = '%',
@@ -63,12 +67,20 @@ typedef enum {
     KEYWORD_RETURN,
     KEYWORD_BREAK,
     KEYWORD_CONTINUE,
+    KEYWORD_SIZEOF,
 } keyword;
 
 const string Keywords[] = {
-    CSTR("if"),     CSTR("else"),   CSTR("for"),    CSTR("while"),
-    CSTR("switch"), CSTR("struct"), CSTR("return"), CSTR("break"),
-    CSTR("continue")
+    CSTR("if"),
+    CSTR("else"),
+    CSTR("for"),
+    CSTR("while"),
+    CSTR("switch"),
+    CSTR("struct"),
+    CSTR("return"),
+    CSTR("break"),
+    CSTR("continue"),
+    CSTR("sizeof"),
 };
 
 typedef struct {

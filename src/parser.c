@@ -8,6 +8,8 @@
 #include "parser_expressions.c"
 #include "util/util.h"
 
+token_type dbg_token(parser *p) { return peek(p)->Type; }
+
 ast_node *node(parser *p, node_type type) {
     ast_node *Node = arena_push(p->Arena, sizeof(ast_node));
 
@@ -44,6 +46,8 @@ void parse_error(parser *p, const char *format, ...) {
     if (p) print_at(p);
 
     va_end(Args);
+
+    Breakpoint;
 }
 
 token *advance(parser *p) {
@@ -376,6 +380,7 @@ bool is_type(parser *p) {
     // eat all the indirection symbols
     while (expect(p, TOKEN_STAR) || expect(p, TOKEN_OPEN_SQUARE)) {
         if (expect(p, TOKEN_OPEN_SQUARE)) {
+            consume(p, TOKEN_OPEN_SQUARE);
             consume(p, TOKEN_NUMBER);
             consume(p, TOKEN_CLOSE_SQUARE);
         } else {
@@ -491,10 +496,22 @@ ast_node *parse_block(parser *p) {
 bool is_block(parser *p) { return expect(p, TOKEN_OPEN_SCOPE); }
 
 ast_node *parse_if(parser *p) {
-    consume(p, TOKEN_KEYWORD);
+    consume_keyword(p, KEYWORD_IF);
+
     ast_node *Condition = 0, *Body = 0, *Else = 0, *Node = 0;
 
+    bool Paren = false;
+
+    if (peek(p)->Type == TOKEN_OPEN_PAREN) {
+        Paren = true;
+        consume(p, TOKEN_OPEN_PAREN);
+    }
+
     Condition = parse_expression(p);
+
+    if (Paren) {
+        consume(p, TOKEN_CLOSE_PAREN);
+    }
 
     if (is_block(p)) {
         Body = parse_block(p);
@@ -581,11 +598,23 @@ ast_node *parse_while(parser *p) {
 
     consume_keyword(p, KEYWORD_WHILE);
 
+    bool Paren = false;
+
+    if (peek(p)->Type == TOKEN_OPEN_PAREN) {
+        consume(p, TOKEN_OPEN_PAREN);
+        Paren = true;
+    }
+
     Node->While.Condition = parse_expression(p);
-    Node->While.Body      = parse_block(p);
+
+    if (Paren) consume(p, TOKEN_CLOSE_PAREN);
+
+    Node->While.Body = parse_block(p);
 
     return Node;
 }
+
+bool is_sizeof(parser *p) { return expect_keyword(p, KEYWORD_SIZEOF); }
 
 ast_node *parse_break(parser *p) {
     ast_node *Node = node(p, NODE_BREAK);
@@ -597,6 +626,22 @@ ast_node *parse_break(parser *p) {
 ast_node *parse_continue(parser *p) {
     ast_node *Node = node(p, NODE_CONTINUE);
     consume_keyword(p, KEYWORD_CONTINUE);
+
+    return Node;
+}
+
+bool is_include(parser *p) { return expect(p, TOKEN_INCLUDE); }
+
+ast_node *parse_include(parser *p) {
+    ast_node *Node = node(p, NODE_INCLUDE);
+
+    consume(p, TOKEN_INCLUDE);
+
+    if (expect(p, TOKEN_QUOTE)) {
+        consume(p, TOKEN_QUOTE);
+        Node->Include.Filename = advance(p)->String;
+        consume(p, TOKEN_QUOTE);
+    }
 
     return Node;
 }
@@ -613,6 +658,7 @@ node_type next_statement_type(parser *p) {
     if (is_var_decl(p)) return NODE_VAR_DECL;
     if (is_break(p)) return NODE_BREAK;
     if (is_continue(p)) return NODE_CONTINUE;
+    if (is_include(p)) return NODE_INCLUDE;
 
     // Not on this predefined list of operations, so we evaluate it in parser_expressions.c
 
@@ -631,7 +677,8 @@ ast_node *parse_statement(parser *p, node_type type) {
 
             ExpectSemicolon = true;
             break;
-        case NODE_BLOCK: Node = parse_block(p); break;
+        case NODE_BLOCK:   Node = parse_block(p); break;
+        case NODE_INCLUDE: Node = parse_include(p); break;
         case NODE_RETURN:
             Node = parse_return(p);
 
@@ -785,6 +832,10 @@ ast_node *parse_function(parser *p) {
     Root->FuncDef.IsVarArg   = IsVarArg;
 
     return Root;
+}
+
+bool is_node_dereference(ast_node *node) {
+    return node->Type == NODE_UNARY_OP && node->UnaryOp.Operation == TOKEN_STAR;
 }
 
 int get_top_level_function_count(parser *p) {
@@ -1028,6 +1079,10 @@ void print_node(ast_node *node) {
             }
 
             printf(ANSI_DIM " }");
+            break;
+        case NODE_INCLUDE:
+            printf(ANSI_FG_BRIGHT_YELLOW "include " ANSI_RESET);
+            string_print_b(node->Include.Filename);
             break;
         default: printf("(didn't implement printing for node type %d yet!)", node->Type); break;
     }

@@ -26,6 +26,7 @@ typedef enum {
     NODE_FOR,
     NODE_STRUCT,
     NODE_CALL,
+    NODE_INCLUDE,
     NODE_BINARY_OP,
     NODE_UNARY_OP,
     NODE_IDENT,
@@ -46,6 +47,11 @@ typedef struct ast_node {
             struct ast_node **GlobalDecls;  // array of NODE_VAR_DECL
             int GlobalDeclCount;
         } Program;
+
+        // NODE_INCLUDE
+        struct {
+            string Filename;
+        } Include;
 
         // NODE_FUNC_DEF
         struct {
@@ -180,6 +186,7 @@ token *peek(parser *p);
 void parse_error(parser *p, const char *format, ...);
 bool has_next(parser *p);
 token *advance(parser *p);
+ast_node *parse_sizeof(parser *p);
 
 bool is_function_call(parser *p);
 
@@ -189,3 +196,4 @@ token *_consume(parser *p, token_type expected, const char *_file, int _line);
 void print_tree(ast_node *ast);
 void print_node_type(ast_node *node);
 void print_symbol_ptr(ast_node *node);
+bool is_node_dereference(ast_node *node);

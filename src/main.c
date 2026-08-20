@@ -15,7 +15,7 @@ int main(int argc, char **argv) {
     string Filename;
 
     if (argc == 1)
-        Filename = CSTR("../test/a.k");
+        Filename = CSTR("../test/b.k");
     else
         Filename = (string){argv[1], strlen(argv[1])};
 

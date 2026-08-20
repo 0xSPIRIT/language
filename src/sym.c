@@ -157,8 +157,9 @@ int resolve_type_info(memory_arena *arena, scopes *Scopes, ast_node *Type, type_
     if (DataType == TYPE_PTR || DataType == TYPE_ARRAY) {
         type_info *NextTypeInfo = arena_push(arena, sizeof(type_info));
 
-        TypeInfo->IndirectionDepth =
-            1 + resolve_type_info(arena, Scopes, Type->DataType.PointingTo, NextTypeInfo);
+        TypeInfo->IndirectionDepth = 1 + resolve_type_info(arena, Scopes, Type->DataType.PointingTo, NextTypeInfo);
+
+        TypeInfo->IsArray = (DataType == TYPE_ARRAY);
 
         TypeInfo->PointingTo = NextTypeInfo;
 
@@ -232,14 +233,18 @@ symbol **resolve_parameters(memory_arena *arena, ast_node *func, scopes *Scopes)
 }
 
 // Returns size of all locals in the function.
-int resolve_stack_offsets(ast_node *Stmt, int Offset) {
+int resolve_stack_offsets(ast_node *Stmt, int Offset, int *OutBlockSize) {
     if (!Stmt) return Offset;
 
     switch (Stmt->Type) {
         case NODE_BLOCK: {
+            int SavedOffset = Offset;
+
             for (int i = 0; i < Stmt->Block.StatementCount; i++) {
-                Offset = resolve_stack_offsets(Stmt->Block.Statements[i], Offset);
+                Offset = resolve_stack_offsets(Stmt->Block.Statements[i], Offset, OutBlockSize);
             }
+
+            Offset = SavedOffset;
             break;
         }
 
@@ -251,25 +256,25 @@ int resolve_stack_offsets(ast_node *Stmt, int Offset) {
             Sym->StackOffset = Offset;
 
             for (int i = 0; i < Stmt->VarDecl.ChildDeclsCount; i++) {
-                Offset = resolve_stack_offsets(Stmt->VarDecl.ChildDecls[i], Offset);
+                Offset = resolve_stack_offsets(Stmt->VarDecl.ChildDecls[i], Offset, OutBlockSize);
             }
             break;
         }
 
         case NODE_FOR: {
-            Offset = resolve_stack_offsets(Stmt->For.Init, Offset);
-            Offset = resolve_stack_offsets(Stmt->For.Body, Offset);
+            Offset = resolve_stack_offsets(Stmt->For.Init, Offset, OutBlockSize);
+            Offset = resolve_stack_offsets(Stmt->For.Body, Offset, OutBlockSize);
             break;
         }
 
         case NODE_IF: {
-            Offset = resolve_stack_offsets(Stmt->If.ThenBlock, Offset);
-            Offset = resolve_stack_offsets(Stmt->If.ElseBlock, Offset);
+            Offset = resolve_stack_offsets(Stmt->If.ThenBlock, Offset, OutBlockSize);
+            Offset = resolve_stack_offsets(Stmt->If.ElseBlock, Offset, OutBlockSize);
             break;
         }
 
         case NODE_WHILE: {
-            Offset = resolve_stack_offsets(Stmt->While.Body, Offset);
+            Offset = resolve_stack_offsets(Stmt->While.Body, Offset, OutBlockSize);
             break;
         }
 
@@ -277,6 +282,8 @@ int resolve_stack_offsets(ast_node *Stmt, int Offset) {
             break;
         }
     }
+
+    if (Offset > *OutBlockSize) *OutBlockSize = Offset;
 
     return Offset;
 }
@@ -415,11 +422,12 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbo
             FuncData.ParamCount = node->FuncDef.ParamCount;
             FuncData.Params     = Params;
             FuncData.ReturnType = node->FuncDef.ReturnType->DataType.Type;
+            FuncData.IsVariadic = node->FuncDef.IsVarArg;
 
             symbol *Sym = node->FuncDef.Name->Ident.Sym;
 
-            Sym->TypeInfo.Size = resolve_stack_offsets(node->FuncDef.Body, 0);
-            Sym->Function      = FuncData;
+            resolve_stack_offsets(node->FuncDef.Body, 0, &Sym->TypeInfo.Size);
+            Sym->Function = FuncData;
             break;
         }
         case NODE_CALL: {

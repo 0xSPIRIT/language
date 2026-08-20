@@ -8,12 +8,12 @@
 #include "util/util.h"
 
 #define Imm(value) \
-    (operand) { .Type = OPERAND_IMM, .Imm.Value = value }
+    (operand) { .Type = OPERAND_IMM, .Imm.Value = (value) }
 
 #define Reg(reg, size) \
     (operand) { .Type = OPERAND_REG, .Size = size, .Reg.Register = reg }
-#define Rbp (Reg(REG_RBP, SIZE_64))
-#define Rsp (Reg(REG_RSP, SIZE_64))
+#define Rbp (Reg(REG_RBP, 8))
+#define Rsp (Reg(REG_RSP, 8))
 
 #define ConstDisplacement(disp) \
     (displacement) { .Type = DISPLACEMENT_CONSTANT, .Value = (disp) }
@@ -37,6 +37,8 @@ void emit_error(const char *format, ...) {
 
     va_end(Args);
 }
+
+operand LabelOperand(string Label) { return (operand){.Type = OPERAND_LABEL, .Label.Name = Label}; }
 
 void emit_count(program_code *code, asm_instruction *instructions, int count) {
     asm_instruction *Ptr = arena_push(&code->InstructionArena, count * sizeof(asm_instruction));
@@ -180,8 +182,8 @@ string push_rodata_entry(program_code *code, rodata_entry Entry) {
 
 void emit_program_epilogue(program_code *code) {
     asm_instruction Instructions[] = {
-        {.Op = ASM_MOV, .Dst = Reg(REG_RDI, SIZE_64), .Src = Reg(REG_RAX, SIZE_64)},
-        {.Op = ASM_MOV, .Dst = Reg(REG_RAX, SIZE_64), .Src = Imm(60)},
+        {.Op = ASM_MOV, .Dst = Reg(REG_RDI, 8), .Src = Reg(REG_RAX, 8)},
+        {.Op = ASM_MOV, .Dst = Reg(REG_RAX, 8), .Src = Imm(60)},
         {.Op = ASM_SYSCALL},
     };
 
@@ -201,18 +203,63 @@ void emit_function_epilogue(program_code *code) {
     emit_count(code, Instructions, ArraySize(Instructions));
 }
 
-void emit_for(program_code *code) {}
+operand emit_and(program_code *code, operand Left, operand Right) {
+    if (Left.Type == OPERAND_IMM && Right.Type == OPERAND_IMM) {
+        return Imm(Left.Imm.Value && Right.Imm.Value);
+    }
 
-operand LabelOperand(string Label) { return (operand){.Type = OPERAND_LABEL, .Label.Name = Label}; }
+    string TrueEnd  = new_label(code);
+    string FalseEnd = new_label(code);
+
+    emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Left, .Src = Imm(0)});
+    emit(code, (asm_instruction){.Op = ASM_JE, .Dst = LabelOperand(FalseEnd)});
+
+    emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Right, .Src = Imm(0)});
+    emit(code, (asm_instruction){.Op = ASM_JE, .Dst = LabelOperand(FalseEnd)});
+
+    emit_move(code, Reg(REG_RAX, 1), Imm(1));
+    emit(code, (asm_instruction){.Op = ASM_JMP, .Dst = LabelOperand(TrueEnd)});
+
+    emit_label(code, FalseEnd);
+    emit_move(code, Reg(REG_RAX, 1), Imm(0));
+
+    emit_label(code, TrueEnd);
+
+    return Reg(REG_RAX, 1);
+}
+
+operand emit_or(program_code *code, operand Left, operand Right) {
+    if (Left.Type == OPERAND_IMM && Right.Type == OPERAND_IMM) {
+        return Imm(Left.Imm.Value || Right.Imm.Value);
+    }
+
+    string TrueEnd = new_label(code);
+    string End     = new_label(code);
+
+    emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Left, .Src = Imm(0)});
+    emit(code, (asm_instruction){.Op = ASM_JNE, .Dst = LabelOperand(TrueEnd)});
+
+    emit(code, (asm_instruction){.Op = ASM_CMP, .Dst = Right, .Src = Imm(0)});
+    emit(code, (asm_instruction){.Op = ASM_JNE, .Dst = LabelOperand(TrueEnd)});
+
+    emit_move(code, Reg(REG_RAX, 1), Imm(0));
+    emit(code, (asm_instruction){.Op = ASM_JMP, .Dst = LabelOperand(End)});
+
+    emit_label(code, TrueEnd);
+    emit_move(code, Reg(REG_RAX, 1), Imm(1));
+
+    emit_label(code, End);
+    return Reg(REG_RAX, 1);
+}
 
 void emit_jump(program_code *code, string Label) {
     emit(code, (asm_instruction){.Op = ASM_JMP, .Dst = LabelOperand(Label)});
 }
 
 void emit_cmp(program_code *code, operand Left, operand Right) {
-    if (Left.Size == SIZE_NONE)
+    if (Left.Size == 0)
         Left.Size = Right.Size;
-    else if (Right.Size == SIZE_NONE)
+    else if (Right.Size == 0)
         Right.Size = Left.Size;
 
     if (Left.Size < Right.Size) {
@@ -263,16 +310,16 @@ operand emit_comparison(program_code *code, token_type Op, operand Left, operand
         default:                assert(false); break;
     }
 
-    emit(code, (asm_instruction){.Op = SetOpcode, .Dst = Reg(REG_RAX, SIZE_8)});
-    emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Reg(REG_RAX, SIZE_32), .Src = Reg(REG_RAX, SIZE_8)});
+    emit(code, (asm_instruction){.Op = SetOpcode, .Dst = Reg(REG_RAX, 1)});
+    emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Reg(REG_RAX, 4), .Src = Reg(REG_RAX, 1)});
 
-    return Reg(REG_RAX, SIZE_32);
+    return Reg(REG_RAX, 4);
 }
 
 operand get_string_lit_operand(program_code *code, string Label) {
     return (operand){
         .Type = OPERAND_MEM,
-        .Size = SIZE_64,
+        .Size = 8,
         .Mem  = {.IsAddress = true, .Base = REG_RIP, .Displacement = LabelDisplacement(Label)}
     };
 }
@@ -280,8 +327,6 @@ operand get_string_lit_operand(program_code *code, string Label) {
 void emit_lea(program_code *code, operand DstReg, operand SrcMem) {
     assert(DstReg.Type == OPERAND_REG);
     assert(SrcMem.Type == OPERAND_MEM);
-
-    // Since LEA can be called from emit_mov, the sizes might not be correct.
 
     SrcMem.Size = 0;
     DstReg.Size = 8;
@@ -292,7 +337,7 @@ void emit_lea(program_code *code, operand DstReg, operand SrcMem) {
 operand emit_math(program_code *code, token_type Op, operand Left, operand Right) {
     int Size = Max(Left.Size, Right.Size);
 
-    if (Size == 0) Size = SIZE_32;
+    if (Size == 0) Size = 4;
 
     asm_opcode MathOp;
 
@@ -382,11 +427,11 @@ operand emit_binop(ast_node *node, program_code *code) {
 
             asm_opcode Set = Op == TOKEN_EQUALS_EQUALS ? ASM_SETE : ASM_SETNE;
 
-            emit(code, (asm_instruction){.Op = Set, .Dst = Reg(REG_RAX, SIZE_8)});
+            emit(code, (asm_instruction){.Op = Set, .Dst = Reg(REG_RAX, 1)});
 
-            emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Reg(REG_RAX, SIZE_32), .Src = Reg(REG_RAX, SIZE_8)});
+            emit(code, (asm_instruction){.Op = ASM_MOVZX, .Dst = Reg(REG_RAX, 4), .Src = Reg(REG_RAX, 1)});
 
-            Result = Reg(REG_RAX, SIZE_32);
+            Result = Reg(REG_RAX, 4);
             break;
         }
         case TOKEN_LESS:
@@ -399,12 +444,27 @@ operand emit_binop(ast_node *node, program_code *code) {
         case TOKEN_PLUS:
         case TOKEN_MINUS:
             if (is_pointer_math_op(code, node)) {
-                Result = emit_pointer_math_op(code, node);
+                Result = emit_pointer_math_op(code, node, REG_RAX);
                 break;
             }
         case TOKEN_STAR:
         case TOKEN_DIVIDE: {
             Result = emit_math(code, node->BinaryOp.Operation, Left, Right);
+            break;
+        }
+
+        case TOKEN_OPEN_SQUARE: {
+            Result = emit_dereference(code, node, REG_RAX);
+            break;
+        }
+
+        case TOKEN_AND: {
+            Result = emit_and(code, Left, Right);
+            break;
+        }
+
+        case TOKEN_OR: {
+            Result = emit_or(code, Left, Right);
             break;
         }
 
@@ -433,8 +493,34 @@ operand emit_negate(program_code *code, ast_node *node, operand Operand) {
     return Operand;
 }
 
+operand emit_not(program_code *code, operand Operand) {
+    if (Operand.Type == OPERAND_IMM) {
+        if (Operand.Imm.Value == 0) {
+            return Imm(1);
+        } else {
+            return Imm(0);
+        }
+    } else if (Operand.Type == OPERAND_REG || Operand.Type == OPERAND_MEM) {
+        operand Rax = Reg(REG_RAX, Operand.Size);
+        operand Al  = Reg(REG_RAX, 1);
+
+        emit_move(code, Rax, Operand);
+        emit_test(code, Rax, Rax);
+        emit(code, (asm_instruction){.Op = ASM_SETE, Al});
+
+        if (Rax.Size > Al.Size) emit(code, (asm_instruction){.Op = ASM_MOVZX, Rax, Al});
+
+        return Rax;
+    }
+
+    assert(false);
+    return Reg(REG_RAX, Operand.Size);
+}
+
 operand emit_inc_dec(program_code *Code, ast_node *Node, bool Increment, bool Prefix) {
-    operand Var = emit_expression(Node, Code);
+    assert(Node->Type == NODE_UNARY_OP);
+
+    operand Var = emit_expression(Node->UnaryOp.Operand, Code);
 
     if (Var.Type == OPERAND_IMM) {
         emit_error("Can't ++ or -- an immediate value.");
@@ -451,38 +537,72 @@ operand emit_inc_dec(program_code *Code, ast_node *Node, bool Increment, bool Pr
     return Prefix ? Var : Reg(REG_RAX, Var.Size);
 }
 
-// Get type info of a pointer from pointer arithmetic binary operation
-type_info get_type_info_from_operand(ast_node *Node) {
+// Get type info of a node
+//   IF Principal IS TRUE:
+//     Say *char a;
+//     get_type_info_from_operand(++a) => type info for *char
+//     get_type_info_from_operand(a + 2) => type info for *char
+//     get_type_info_from_operand(a[0]) => type info for char
+//   IF Principal IS FALSE:
+//     Say *char a;
+//     get_type_info_from_operand(a[0]) => type info for *char
+type_info get_type_info_from_operand(ast_node *Node, bool Principal) {
     type_info Result = {};
 
+    // If Principal is false, we would need to return PointingTo's type_info
+    bool IsDereferencing = false;
+
     switch (Node->Type) {
-        case NODE_IDENT:     Result = Node->Ident.Sym->TypeInfo; break;
+        case NODE_IDENT: {
+            Result = Node->Ident.Sym->TypeInfo;
+            break;
+        }
         case NODE_BINARY_OP: {
             token_type Op = Node->BinaryOp.Operation;
-            if (Op != TOKEN_PLUS && Op != TOKEN_MINUS) return Result;
 
-            type_info A = get_type_info_from_operand(Node->BinaryOp.Left);
-            type_info B = get_type_info_from_operand(Node->BinaryOp.Right);
+            if (Op != TOKEN_OPEN_SQUARE && Op != TOKEN_PLUS && Op != TOKEN_MINUS) return Result;
+
+            IsDereferencing = (Op == TOKEN_OPEN_SQUARE);
+
+            type_info A = get_type_info_from_operand(Node->BinaryOp.Left, Principal);
+            type_info B = get_type_info_from_operand(Node->BinaryOp.Right, Principal);
 
             if (A.IndirectionDepth > 0 && B.IndirectionDepth > 0) {
                 emit_error("Pointer math can only be done with one pointer operand.");
             } else if (A.IndirectionDepth > 0) {
                 Result = A;
+
             } else {
                 Result = B;
             }
+            break;
+        }
+        case NODE_UNARY_OP: {
+            Result          = get_type_info_from_operand(Node->UnaryOp.Operand, Principal);
+            IsDereferencing = (Node->UnaryOp.Operation == TOKEN_STAR);
+            break;
         }
         default: break;
+    }
+
+    if (!Principal && IsDereferencing) {
+        assert(Result.PointingTo);
+        Result = *Result.PointingTo;
     }
 
     return Result;
 }
 
+operand emit_sizeof(program_code *code, ast_node *Operand) {
+    type_info TypeInfo = get_type_info_from_operand(Operand, false);
+    return Imm(TypeInfo.Size);
+}
+
 bool is_pointer_math_op(program_code *code, ast_node *Node) {
     if (Node->Type != NODE_BINARY_OP) return false;
 
-    type_info A = get_type_info_from_operand(Node->BinaryOp.Left);
-    type_info B = get_type_info_from_operand(Node->BinaryOp.Right);
+    type_info A = get_type_info_from_operand(Node->BinaryOp.Left, true);
+    type_info B = get_type_info_from_operand(Node->BinaryOp.Right, true);
 
     if (A.IndirectionDepth > 0 && B.IndirectionDepth > 0) return false;
     if (A.IndirectionDepth > 0 || B.IndirectionDepth > 0) return true;
@@ -490,122 +610,136 @@ bool is_pointer_math_op(program_code *code, ast_node *Node) {
     return false;
 }
 
-// Returns pointer into rax
-operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
-    type_info TypeInfo = get_type_info_from_operand(Operand);
+operand access_array(program_code *code,
+                     operand Left,
+                     operand Right,
+                     bool Subtract,
+                     type_info PtrTypeInfo,
+                     type_info TypeInfoLeft,
+                     register_id OutputReg) {
+    assert(PtrTypeInfo.IndirectionDepth > 0);
+    assert(PtrTypeInfo.PointingTo);
+
+    operand Ptr = TypeInfoLeft.IndirectionDepth > 0 ? Left : Right;
+    operand Off = TypeInfoLeft.IndirectionDepth > 0 ? Right : Left;
+
+    int ElemSize = PtrTypeInfo.PointingTo->Size;
+
+    if (Off.Type == OPERAND_IMM) {
+        int Disp = Off.Imm.Value * ElemSize;
+
+        if (Subtract) Disp *= -1;
+
+        emit_move(code, Reg(OutputReg, 8), Ptr);
+
+        operand Mem = {
+            .Type = OPERAND_MEM,
+            .Mem  = {.Base = OutputReg, .Displacement = {.Type = DISPLACEMENT_CONSTANT, .Value = Disp}}
+        };
+
+        emit_lea(code, Reg(OutputReg, 8), Mem);
+
+        return Reg(OutputReg, 8);
+    } else if (Off.Type == OPERAND_REG && (ElemSize == 1 || ElemSize == 2 || ElemSize == 4 || ElemSize == 8)) {
+        if (Subtract) emit(code, (asm_instruction){.Op = ASM_NEG, .Dst = Off});
+
+        if (Off.Reg.Register == OutputReg) {
+            operand Scratch = scratch_register(8);  // increase to 64-bit
+
+            if (Off.Size < 8)
+                emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Scratch, .Src = Off});
+            else
+                emit_move(code, Scratch, Off);
+
+            emit_move(code, Reg(OutputReg, 8), Ptr);
+
+            operand Mem = {
+                .Type = OPERAND_MEM, .Mem = {.Base = OutputReg, .Index = Scratch.Reg.Register, .Scale = ElemSize}
+            };
+
+            emit_lea(code, Reg(OutputReg, 8), Mem);
+
+            free_scratch_register();
+        } else {
+            emit_move(code, Reg(OutputReg, 8), Ptr);
+
+            emit_lea(
+                code,
+                Reg(OutputReg, 8),
+                (operand){
+                    .Type = OPERAND_MEM, .Mem = {.Base = OutputReg, .Index = Off.Reg.Register, .Scale = ElemSize}
+            });
+        }
+
+        return Reg(OutputReg, 8);
+    } else {
+        assert(Off.Type == OPERAND_MEM);
+
+        asm_opcode Opcode = Subtract ? ASM_SUB : ASM_ADD;
+
+        // (imul) Multiply offset by ElemSize
+        if (ElemSize > 1) {
+            Off = emit_math(code, TOKEN_STAR, Off, Imm(ElemSize));
+
+            // move the result out from OutputReg, since we need OutputReg to store the ptr
+            operand Scratch = scratch_register(8);  // increase to 64-bit
+
+            if (Off.Size < 8)
+                emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Scratch, .Src = Off});
+            else
+                emit_move(code, Scratch, Off);
+
+            emit_move(code, Reg(OutputReg, 8), Ptr);
+
+            emit(code, (asm_instruction){.Op = Opcode, .Dst = Reg(OutputReg, 8), .Src = Scratch});
+
+            free_scratch_register();
+
+            return Reg(OutputReg, 8);
+        } else {
+            emit_move(code, Reg(OutputReg, 8), Ptr);
+
+            if (Off.Size < 8) {
+                operand Scratch = scratch_register(8);
+                emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Scratch, .Src = Off});
+                emit(code, (asm_instruction){.Op = Opcode, .Dst = Reg(OutputReg, 8), .Src = Scratch});
+                free_scratch_register();
+            } else {
+                emit(code, (asm_instruction){.Op = Opcode, .Dst = Reg(OutputReg, 8), .Src = Off});
+            }
+
+            return Reg(OutputReg, 8);
+        }
+    }
+}
+
+// Returns pointer into OutputReg
+operand emit_pointer_math_op(program_code *code, ast_node *Operand, register_id OutputReg) {
+    type_info TypeInfo = get_type_info_from_operand(Operand, true);
 
     switch (Operand->Type) {
         case NODE_IDENT: {
             operand Mem = emit_expression(Operand, code);
-            emit_move(code, Reg(REG_RAX, SIZE_64), Mem);
-            return Reg(REG_RAX, SIZE_64);
+
+            // For arrays, we have to do a lea, not just a mov
+            if (Operand->Ident.Sym->TypeInfo.IsArray) Mem.Mem.IsAddress = true;
+
+            emit_move(code, Reg(OutputReg, 8), Mem);
+            return Reg(OutputReg, 8);
         }
         case NODE_BINARY_OP: {
             token_type Operation = Operand->BinaryOp.Operation;
 
             switch (Operation) {
                 case TOKEN_PLUS:
-                case TOKEN_MINUS: {
+                case TOKEN_MINUS:
+                case TOKEN_OPEN_SQUARE: {
                     operand Left  = emit_expression(Operand->BinaryOp.Left, code);
                     operand Right = emit_expression(Operand->BinaryOp.Right, code);
 
-                    type_info TypeInfoLeft = get_type_info_from_operand(Operand->BinaryOp.Left);
+                    type_info TypeInfoLeft = get_type_info_from_operand(Operand->BinaryOp.Left, false);
 
-                    operand Ptr = TypeInfoLeft.IndirectionDepth > 0 ? Left : Right;
-                    operand Off = TypeInfoLeft.IndirectionDepth > 0 ? Right : Left;
-
-                    int ElemSize = TypeInfo.PointingTo->Size;
-
-                    if (Off.Type == OPERAND_IMM) {
-                        int Disp = Off.Imm.Value * ElemSize;
-
-                        if (Operation == TOKEN_MINUS) Disp *= -1;
-
-                        emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
-
-                        operand Mem = {
-                            .Type = OPERAND_MEM,
-                            .Mem  = {.Base = REG_RAX, .Displacement = {.Type = DISPLACEMENT_CONSTANT, .Value = Disp}}
-                        };
-
-                        emit_lea(code, Reg(REG_RAX, SIZE_64), Mem);
-
-                        return Reg(REG_RAX, SIZE_64);
-                    } else if (Off.Type == OPERAND_REG &&
-                               (ElemSize == 1 || ElemSize == 2 || ElemSize == 4 || ElemSize == 8)) {
-                        if (Operation == TOKEN_MINUS) emit(code, (asm_instruction){.Op = ASM_NEG, .Dst = Off});
-
-                        if (Off.Reg.Register == REG_RAX) {
-                            // move the result out from rax, since we need rax to store the ptr
-                            operand Scratch = scratch_register(SIZE_64);  // increase to 64-bit
-
-                            if (Off.Size < SIZE_64)
-                                emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Scratch, .Src = Off});
-                            else
-                                emit_move(code, Scratch, Off);
-
-                            emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
-
-                            operand Mem = {
-                                .Type = OPERAND_MEM,
-                                .Mem  = {.Base = REG_RAX, .Index = Scratch.Reg.Register, .Scale = ElemSize}
-                            };
-
-                            emit_lea(code, Reg(REG_RAX, SIZE_64), Mem);
-
-                            free_scratch_register();
-                        } else {
-                            emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
-
-                            emit_lea(code,
-                                     Reg(REG_RAX, SIZE_64),
-                                     (operand){
-                                         .Type = OPERAND_MEM,
-                                         .Mem  = {.Base = REG_RAX, .Index = Off.Reg.Register, .Scale = ElemSize}
-                            });
-                        }
-
-                        return Reg(REG_RAX, SIZE_64);
-                    } else {
-                        assert(Off.Type == OPERAND_MEM);
-
-                        asm_opcode Opcode = Operation == TOKEN_PLUS ? ASM_ADD : ASM_SUB;
-
-                        // (imul) Multiply offset by ElemSize
-                        if (ElemSize > 1) {
-                            Off = emit_math(code, TOKEN_STAR, Off, Imm(ElemSize));
-
-                            // move the result out from rax, since we need rax to store the ptr
-                            operand Scratch = scratch_register(SIZE_64);  // increase to 64-bit
-
-                            if (Off.Size < SIZE_64)
-                                emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Scratch, .Src = Off});
-                            else
-                                emit_move(code, Scratch, Off);
-
-                            emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
-
-                            emit(code, (asm_instruction){.Op = Opcode, .Dst = Reg(REG_RAX, SIZE_64), .Src = Scratch});
-
-                            free_scratch_register();
-
-                            return Reg(REG_RAX, SIZE_64);
-                        } else {
-                            emit_move(code, Reg(REG_RAX, SIZE_64), Ptr);
-
-                            if (Off.Size < SIZE_64) {
-                                operand Scratch = scratch_register(SIZE_64);
-                                emit(code, (asm_instruction){.Op = ASM_MOVSX, .Dst = Scratch, .Src = Off});
-                                emit(code,
-                                     (asm_instruction){.Op = Opcode, .Dst = Reg(REG_RAX, SIZE_64), .Src = Scratch});
-                                free_scratch_register();
-                            } else {
-                                emit(code, (asm_instruction){.Op = Opcode, .Dst = Reg(REG_RAX, SIZE_64), .Src = Off});
-                            }
-
-                            return Reg(REG_RAX, SIZE_64);
-                        }
-                    }
+                    return access_array(code, Left, Right, Operation == TOKEN_MINUS, TypeInfo, TypeInfoLeft, OutputReg);
                 }
                 default: {
                     // TODO: Error message
@@ -615,11 +749,23 @@ operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
             }
             break;
         }
-        case TOKEN_INC: {
-            return emit_inc_dec(code, Operand, true, Operand->UnaryOp.First);
-        }
-        case TOKEN_DEC: {
-            return emit_inc_dec(code, Operand, false, Operand->UnaryOp.First);
+        case NODE_UNARY_OP: {
+            token_type Operation = Operand->UnaryOp.Operation;
+
+            switch (Operation) {
+                case TOKEN_INC: {
+                    return emit_inc_dec(code, Operand, true, Operand->UnaryOp.First);
+                }
+                case TOKEN_DEC: {
+                    return emit_inc_dec(code, Operand, false, Operand->UnaryOp.First);
+                }
+                case TOKEN_SIZEOF: {
+                    return emit_sizeof(code, Operand->UnaryOp.Operand);
+                }
+                default: {
+                    break;
+                }
+            }
         }
         default: {
             // TODO: Error message
@@ -634,21 +780,26 @@ operand emit_pointer_math_op(program_code *code, ast_node *Operand) {
     return (operand){};
 }
 
-operand emit_dereference(program_code *code, ast_node *OperandNode) {
-    assert(OperandNode->Type == NODE_UNARY_OP);
+operand emit_dereference(program_code *code, ast_node *OperandNode, register_id OutputReg) {
+    assert((OperandNode->Type == NODE_UNARY_OP && OperandNode->UnaryOp.Operation == TOKEN_STAR) ||
+           (OperandNode->Type == NODE_BINARY_OP && OperandNode->BinaryOp.Operation == TOKEN_OPEN_SQUARE));
+
+    bool IsUnary = OperandNode->Type == NODE_UNARY_OP;
 
     // Extract type info to get size
-    type_info TypeInfo = get_type_info_from_operand(OperandNode->UnaryOp.Operand);
+    type_info TypeInfo = get_type_info_from_operand(OperandNode, true);
 
-    emit_pointer_math_op(code, OperandNode->UnaryOp.Operand);
+    ast_node *Operand = IsUnary ? OperandNode->UnaryOp.Operand : OperandNode;
 
-    if (TypeInfo.Size <= 8) {
+    emit_pointer_math_op(code, Operand, OutputReg);
+
+    if (TypeInfo.PointingTo->Size <= 8) {
         operand Dst = {};
 
         Dst.Type          = OPERAND_MEM;
         Dst.Size          = TypeInfo.PointingTo->Size;
         Dst.Mem.IsAddress = false;
-        Dst.Mem.Base      = REG_RAX;
+        Dst.Mem.Base      = OutputReg;
 
         return Dst;
     } else {
@@ -656,7 +807,7 @@ operand emit_dereference(program_code *code, ast_node *OperandNode) {
         assert(false);
     }
 
-    return Reg(REG_RAX, SIZE_64);
+    return Reg(OutputReg, 8);
 }
 
 operand emit_addressof(program_code *code, ast_node *OperandNode) {
@@ -665,30 +816,38 @@ operand emit_addressof(program_code *code, ast_node *OperandNode) {
 
     operand Op = emit_expression(OperandNode->UnaryOp.Operand, code);
     assert(Op.Type == OPERAND_MEM);
-    emit_lea(code, Reg(REG_RAX, SIZE_64), Op);
-    return Reg(REG_RAX, SIZE_64);
+    emit_lea(code, Reg(REG_RAX, 8), Op);
+    return Reg(REG_RAX, 8);
 }
 
 operand emit_unaryop(ast_node *node, program_code *code) {
     token_type Operation = node->UnaryOp.Operation;
 
     if (Operation == TOKEN_STAR) {
-        return emit_dereference(code, node);
+        return emit_dereference(code, node, REG_RAX);
     }
 
     if (Operation == TOKEN_AMP) {
         return emit_addressof(code, node);
     }
 
-    operand Operand = emit_expression(node->UnaryOp.Operand, code);
+    operand Operand;
+
+    if (Operation == TOKEN_INC || Operation == TOKEN_DEC || Operation == TOKEN_SIZEOF) {
+        // We are good, no need to emit anything.
+    } else {
+        Operand = emit_expression(node->UnaryOp.Operand, code);
+    }
 
     bool Prefix = node->UnaryOp.First;
 
     switch (Operation) {
-        case TOKEN_MINUS: return emit_negate(code, node, Operand);
-        case TOKEN_INC:   return emit_inc_dec(code, node->UnaryOp.Operand, true, Prefix);
-        case TOKEN_DEC:   return emit_inc_dec(code, node->UnaryOp.Operand, false, Prefix);
-        default:          assert(false); break;
+        case TOKEN_MINUS:  return emit_negate(code, node, Operand);
+        case TOKEN_INC:    return emit_inc_dec(code, node, true, Prefix);
+        case TOKEN_DEC:    return emit_inc_dec(code, node, false, Prefix);
+        case TOKEN_BANG:   return emit_not(code, Operand);
+        case TOKEN_SIZEOF: return emit_sizeof(code, node);
+        default:           assert(false); break;
     }
 
     return Operand;
@@ -705,6 +864,9 @@ operand emit_call(ast_node *node, program_code *code) {
     }
 
     func_data FuncData = node->Call.FuncName->Ident.Sym->Function;
+    bool IsVariadic    = FuncData.IsVariadic;
+
+    printf("%.*s %d\n", (int)node->FuncDef.Name->Ident.Name.Length, node->FuncDef.Name->Ident.Name.Data, IsVariadic);
 
     const int FloatCount = 0;
 
@@ -716,7 +878,7 @@ operand emit_call(ast_node *node, program_code *code) {
         if (i >= FuncData.ParamCount) {
             ExpectedArgSize = ArgI.Size;
 
-            if (!ExpectedArgSize) ExpectedArgSize = SIZE_64;
+            if (!ExpectedArgSize) ExpectedArgSize = 8;
         } else {
             ExpectedArgSize = FuncData.Params[i]->TypeInfo.Size;
         }
@@ -729,7 +891,7 @@ operand emit_call(ast_node *node, program_code *code) {
         emit_move(code, Reg(ParamRegisters[i], ExpectedArgSize), ArgI);
     }
 
-    emit_move(code, Reg(REG_RAX, SIZE_8), Imm(FloatCount));
+    if (IsVariadic) emit_move(code, Reg(REG_RAX, 1), Imm(FloatCount));
 
     emit(code, (asm_instruction){.Op = ASM_CALL, .Dst = LabelOperand(Name)});
 
@@ -758,7 +920,13 @@ operand emit_expression(ast_node *node, program_code *code) {
                 Result.Reg.Register = ParamRegisters[Sym->ParamIndex];
             } else {
                 Result.Type = OPERAND_MEM;
-                Result.Size = Sym->TypeInfo.Size;
+
+                if (Sym->TypeInfo.IsArray) {
+                    Result.Size          = 8;
+                    Result.Mem.IsAddress = true;
+                } else {
+                    Result.Size = Sym->TypeInfo.Size;
+                }
 
                 if (Sym->Section == SECTION_STACK) {
                     Result.Mem.Base         = REG_RBP;
@@ -769,13 +937,13 @@ operand emit_expression(ast_node *node, program_code *code) {
         }
         case NODE_CHAR_LIT: {
             Result.Type      = OPERAND_IMM;
-            Result.Size      = SIZE_8;
+            Result.Size      = 1;
             Result.Imm.Value = node->CharLit.Value;
             break;
         }
         case NODE_INT_LIT: {
             Result.Type      = OPERAND_IMM;
-            Result.Size      = SIZE_NONE;
+            Result.Size      = 0;
             Result.Imm.Value = node->IntegerLit.Value;
             break;
         }
@@ -811,7 +979,7 @@ operand emit_expression(ast_node *node, program_code *code) {
     return Result;
 }
 
-operand scratch_register(operand_size size) {
+operand scratch_register(int size) {
     if (NextFreeRegister >= ArraySize(ScratchRegisters)) {
         emit_error("Expression too complex, ran out of scratch registers.");
         assert(false);
@@ -834,7 +1002,7 @@ void free_scratch_register(void) {
 
 void emit_free_all_scratch_registers(program_code *code) {
     for (int i = MaxScratchRegistersUsed - 1; i >= 0; i--) {
-        asm_instruction Instr = {.Op = ASM_POP, .Dst = Reg(ScratchRegisters[i], SIZE_64)};
+        asm_instruction Instr = {.Op = ASM_POP, .Dst = Reg(ScratchRegisters[i], 8)};
         emit(code, Instr);
     }
 
@@ -843,15 +1011,20 @@ void emit_free_all_scratch_registers(program_code *code) {
 }
 
 void emit_move(program_code *code, operand Dst, operand Src) {
-    if (Src.Size == SIZE_NONE) Src.Size = Dst.Size;
+    if (Src.Size == 0) Src.Size = Dst.Size;
 
+    // If we're moving from X to X, do nothing.
     if (Src.Type == OPERAND_REG && Dst.Type == OPERAND_REG && Src.Reg.Register == Dst.Reg.Register) {
         if (Src.Size >= Dst.Size) return;
-        if (Dst.Size == SIZE_64) return;
+        if (Dst.Size == 8) return;
     }
 
     if (Src.Type == OPERAND_IMM) {
-        emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Src});
+        if (Dst.Type == OPERAND_REG && Src.Imm.Value == 0) {
+            emit(code, (asm_instruction){.Op = ASM_XOR, .Dst = Dst, .Src = Dst});
+        } else {
+            emit(code, (asm_instruction){.Op = ASM_MOV, .Dst = Dst, .Src = Src});
+        }
         return;
     }
 
@@ -872,8 +1045,10 @@ void emit_move(program_code *code, operand Dst, operand Src) {
         Src.Size = Dst.Size;
     }
 
-    bool NeedsExtend = Dst.Size > Src.Size && Dst.Size != SIZE_64;
+    bool NeedsExtend = Dst.Size > Src.Size && Dst.Size != 8;
     asm_opcode Op    = NeedsExtend ? ASM_MOVZX : ASM_MOV;
+
+    if (Dst.Size == 8 && Src.Size == 4) Dst.Size = 4;
 
     if (Dst.Type == OPERAND_MEM && (NeedsExtend || Src.Type == OPERAND_MEM)) {
         operand Tmp = scratch_register(Dst.Size);
@@ -915,11 +1090,15 @@ void emit_statement(ast_node *node, program_code *code) {
     if (!node) return;
 
     switch (node->Type) {
-        case NODE_PROGRAM:
+        case NODE_PROGRAM: {
             for (int i = 0; i < node->Program.FunctionCount; i++) {
                 emit_statement(node->Program.Functions[i], code);
             }
             break;
+        }
+        case NODE_INCLUDE: {
+            break;
+        }
         case NODE_FUNC_DEF: {
             if (!node->FuncDef.Body) return;  // Forward declaration
 
@@ -957,7 +1136,7 @@ void emit_statement(ast_node *node, program_code *code) {
 
             // Backfill the scratch regsiters
             for (int i = 0; i < MaxScratchRegistersUsed; i++) {
-                Scratch[i] = (asm_instruction){.Op = ASM_PUSH, .Dst = Reg(ScratchRegisters[i], SIZE_64)};
+                Scratch[i] = (asm_instruction){.Op = ASM_PUSH, .Dst = Reg(ScratchRegisters[i], 8)};
             }
 
             // Backfill the local size, ensuring % 16 == 8.
@@ -985,18 +1164,22 @@ void emit_statement(ast_node *node, program_code *code) {
                 case TOKEN_EQUALS: {
                     operand Src = emit_expression(Right, code);
 
-                    operand Temp     = Src;
                     bool UsedScratch = false;
 
-                    if (Src.Type == OPERAND_REG) {
-                        Temp = scratch_register(Src.Size);
-                        emit_move(code, Temp, Src);
-                        UsedScratch = true;
+                    if (is_node_dereference(Right)) {
+                        assert(Src.Type == OPERAND_MEM);
+                        assert(Src.Mem.Base == REG_RAX);
+                        // Move the pointer result out of RAX, since
+                        // it's going to be clobbered by the next emit_expression
+                        operand Temp = scratch_register(8);  // (pointer size)
+                        emit_move(code, Temp, Reg(Src.Mem.Base, 8));
+                        Src.Mem.Base = Temp.Reg.Register;
+                        UsedScratch  = true;
                     }
 
                     operand Dst = emit_expression(Left, code);
 
-                    emit_move(code, Dst, Temp);
+                    emit_move(code, Dst, Src);
 
                     if (UsedScratch) {
                         free_scratch_register();
@@ -1114,7 +1297,7 @@ void emit_statement(ast_node *node, program_code *code) {
     }
 }
 
-char *register_name(memory_arena *Arena, register_id Reg, operand_size Size) {
+char *register_name(register_id Reg, int Size) {
     int Index;
 
     switch (Size) {
@@ -1165,8 +1348,8 @@ char *register_name(memory_arena *Arena, register_id Reg, operand_size Size) {
             static const char Suffixes[] = "bwd";
             char Suffix                  = Suffixes[Index];
 
-            // Allocate buffer from the arena (e.g., "r15d\0" fits inside 5-6 bytes)
-            char *Result = (char *)arena_push(Arena, 6);
+            static char Result[32] = {};
+
             if (Suffix != '\0') {
                 sprintf(Result, "r%d%c", RegNum, Suffix);
             } else {
@@ -1182,24 +1365,24 @@ char *register_name(memory_arena *Arena, register_id Reg, operand_size Size) {
     return "(null)";
 }
 
-char *size_directive(operand_size size) {
+char *size_directive(int size) {
     switch (size) {
-        case SIZE_NONE: return "";  // Used for LEA
-        case SIZE_8:    return "BYTE PTR";
-        case SIZE_16:   return "WORD PTR";
-        case SIZE_32:   return "DWORD PTR";
-        case SIZE_64:   return "QWORD PTR";
+        case 0: return "";  // Used for LEA
+        case 1: return "BYTE PTR";
+        case 2: return "WORD PTR";
+        case 4: return "DWORD PTR";
+        case 8: return "QWORD PTR";
     }
 
     return "(invalid size)";
 }
 
-void print_mem(memory_arena *Arena, FILE *out, operand op) {
+void print_mem(FILE *out, operand op) {
     char *SizeDirective = size_directive(op.Size);
-    fprintf(out, "%s%s[%s", SizeDirective, SizeDirective[0] ? " " : "", register_name(Arena, op.Mem.Base, SIZE_64));
+    fprintf(out, "%s%s[%s", SizeDirective, SizeDirective[0] ? " " : "", register_name(op.Mem.Base, 8));
 
     int RegSize = op.Size > 0 ? op.Size : 8;
-    if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(Arena, op.Mem.Index, RegSize), op.Mem.Scale);
+    if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(op.Mem.Index, RegSize), op.Mem.Scale);
 
     displacement Disp = op.Mem.Displacement;
 
@@ -1221,12 +1404,12 @@ void print_mem(memory_arena *Arena, FILE *out, operand op) {
     }
 }
 
-void print_operand(memory_arena *Arena, FILE *out, operand op) {
+void print_operand(FILE *out, operand op) {
     switch (op.Type) {
         case OPERAND_NONE:  fprintf(out, "none"); break;
-        case OPERAND_REG:   fprintf(out, "%s", register_name(Arena, op.Reg.Register, op.Size)); break;
+        case OPERAND_REG:   fprintf(out, "%s", register_name(op.Reg.Register, op.Size)); break;
         case OPERAND_IMM:   fprintf(out, "%lld", (long long)op.Imm.Value); break;
-        case OPERAND_MEM:   print_mem(Arena, out, op); break;
+        case OPERAND_MEM:   print_mem(out, op); break;
         case OPERAND_LABEL: fprintf(out, "%.*s", (int)op.Label.Name.Length, op.Label.Name.Data); break;
         default:            fprintf(out, "operand(?)"); break;
     }
@@ -1278,8 +1461,52 @@ char *instruction_name(asm_opcode Opcode) {
 
     return "[Invalid Instruction]";
 }
+int number_operands(asm_opcode Op) {
+    switch (Op) {
+        case ASM_INVALID: return 0;
+        case ASM_LABEL:   return 0;
+        case ASM_MOV:     return 2;
+        case ASM_LEA:     return 2;
+        case ASM_AND:     return 2;
+        case ASM_OR:      return 2;
+        case ASM_XOR:     return 2;
+        case ASM_NOT:     return 1;
+        case ASM_SHL:     return 2;
+        case ASM_SHR:     return 2;
+        case ASM_SAR:     return 2;
+        case ASM_CDQ:     return 0;
+        case ASM_MOVSX:   return 2;
+        case ASM_NOP:     return 0;
+        case ASM_PUSH:    return 1;
+        case ASM_POP:     return 1;
+        case ASM_ADD:     return 2;
+        case ASM_SUB:     return 2;
+        case ASM_IMUL:    return 2;
+        case ASM_IDIV:    return 1;
+        case ASM_NEG:     return 1;
+        case ASM_CMP:     return 2;
+        case ASM_TEST:    return 2;
+        case ASM_SETE:    return 1;
+        case ASM_SETNE:   return 1;
+        case ASM_SETL:    return 1;
+        case ASM_SETLE:   return 1;
+        case ASM_SETG:    return 1;
+        case ASM_SETGE:   return 1;
+        case ASM_MOVZX:   return 2;
+        case ASM_JMP:     return 1;
+        case ASM_JE:      return 1;
+        case ASM_JNE:     return 1;
+        case ASM_JL:      return 1;
+        case ASM_JLE:     return 1;
+        case ASM_JG:      return 1;
+        case ASM_JGE:     return 1;
+        case ASM_CALL:    return 1;
+        case ASM_RET:     return 0;
+        case ASM_SYSCALL: return 0;
+    }
+}
 
-void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in) {
+void print_instruction(FILE *out, asm_instruction *in) {
     switch (in->Op) {
         case ASM_LABEL: {
             string_print_to(out, in->Dst.Label.Name);
@@ -1289,23 +1516,32 @@ void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in) {
         default: {
             fprintf(out, "%s ", instruction_name(in->Op));
 
-            if (in->Op == ASM_NOP || in->Op == ASM_SYSCALL || in->Op == ASM_RET || in->Op == ASM_CDQ) break;
+            int NumberOperands = number_operands(in->Op);
 
-            print_operand(Arena, out, in->Dst);
+            if (NumberOperands == 0) break;
 
-            if (in->Op == ASM_NEG || in->Op == ASM_CALL || in->Op == ASM_IDIV || in->Op == ASM_SETL ||
-                in->Op == ASM_SETG || in->Op == ASM_SETLE || in->Op == ASM_SETGE || in->Op == ASM_JE ||
-                in->Op == ASM_JMP || in->Op == ASM_PUSH || in->Op == ASM_POP || in->Op == ASM_SETNE ||
-                in->Op == ASM_SETE)
-                break;
+            print_operand(out, in->Dst);
+
+            if (NumberOperands == 1) break;
 
             fprintf(out, ", ");
-            print_operand(Arena, out, in->Src);
+            print_operand(out, in->Src);
             break;
         }
     }
 
     fputc('\n', out);
+}
+
+void dbg_operand(operand op) {
+    print_operand(stdout, op);
+    puts("");
+    fflush(stdout);
+}
+void dbg_instr(asm_instruction *in) {
+    print_instruction(stdout, in);
+    puts("");
+    fflush(stdout);
 }
 
 program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
@@ -1352,7 +1588,7 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
         if (Instr->Op == 0) continue;
         if (Instr->Op != ASM_LABEL) fprintf(out, "  ");
 
-        print_instruction(&AsmArena, out, Instr);
+        print_instruction(out, Instr);
     }
 
     fputs("\n.section .note.GNU-stack,\"\",@progbits\n", out);

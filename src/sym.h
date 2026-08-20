@@ -30,13 +30,15 @@ typedef struct {
     struct symbol **Params;
     int ParamCount;
     type ReturnType;
+    bool IsVariadic;
 } func_data;
 
 typedef struct type_info {
     int Size;
+    int IndirectionDepth;
+    bool IsArray;
     struct symbol *StructType;
     struct type_info *PointingTo;
-    int IndirectionDepth;
 } type_info;
 
 typedef struct symbol {

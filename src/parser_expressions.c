@@ -31,7 +31,6 @@ static precedence infix_precedence(parser *p) {
         case TOKEN_DIVIDE:        return PREC_FACTOR;
         case TOKEN_PERCENT:       return PREC_FACTOR;
 
-        // Compound assignment — right-associative, handled specially below.
         case TOKEN_EQUALS:
         case TOKEN_PLUS_EQ:
         case TOKEN_MINUS_EQ:
@@ -39,9 +38,9 @@ static precedence infix_precedence(parser *p) {
         case TOKEN_DIV_EQ:
         case TOKEN_MOD_EQ:   return PREC_ASSIGN;
 
-        // Postfix ++ is an infix-position operator with no right operand.
         case TOKEN_INC: return PREC_POSTFIX;
         case TOKEN_DEC: return PREC_POSTFIX;
+        case TOKEN_SIZEOF: return PREC_POSTFIX;
 
         case TOKEN_DOT:         return PREC_ACCESS;
         case TOKEN_OPEN_SQUARE: return PREC_ACCESS;
@@ -85,8 +84,8 @@ static ast_node *parse_prefix(parser *p) {
         return N;
     }
 
-    // Unary: -expr  !expr  *expr (dereference)
-    if (Tok->Type == TOKEN_MINUS || Tok->Type == TOKEN_BANG || Tok->Type == TOKEN_STAR || Tok->Type == TOKEN_AMP) {
+    // Unary: -expr  !expr  *expr  &expr
+    if (Tok->Type == TOKEN_SIZEOF || Tok->Type == TOKEN_MINUS || Tok->Type == TOKEN_BANG || Tok->Type == TOKEN_STAR || Tok->Type == TOKEN_AMP) {
         advance(p);
         ast_node *Operand = parse_expression_prec(p, PREC_UNARY);
         if (!Operand) {
@@ -157,11 +156,11 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec) {
 
             consume(p, TOKEN_CLOSE_SQUARE);
 
-            ast_node *N = node(p, NODE_BINARY_OP);
+            ast_node *N           = node(p, NODE_BINARY_OP);
             N->BinaryOp.Operation = TOKEN_OPEN_SQUARE;
-            N->BinaryOp.Left = Left;
-            N->BinaryOp.Right = Index;
-            Left = N;
+            N->BinaryOp.Left      = Left;
+            N->BinaryOp.Right     = Index;
+            Left                  = N;
 
             continue;
         }

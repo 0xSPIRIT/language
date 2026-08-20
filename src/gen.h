@@ -61,8 +61,6 @@ typedef enum {
     OPERAND_LABEL,
 } operand_type;
 
-typedef enum { SIZE_NONE = 0, SIZE_8 = 1, SIZE_16 = 2, SIZE_32 = 4, SIZE_64 = 8 } operand_size;
-
 typedef enum {
     REG_NONE = 0,
     REG_RAX,
@@ -101,7 +99,7 @@ typedef struct {
 
 typedef struct {
     operand_type Type;
-    operand_size Size;
+    int Size;
 
     union {
         struct {
@@ -157,7 +155,7 @@ typedef struct {
     memory_arena *GeneralArena;
 
     string CurrentFunction;
-    operand_size CurrentFunctionReturnSize;
+    int CurrentFunctionReturnSize;
 
     rodata_entry *RodataEntries;
     int RodataEntryCount;
@@ -173,12 +171,16 @@ typedef struct {
 
 program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast);
 void free_program_code(program_code *program);
-void print_instruction(memory_arena *Arena, FILE *out, asm_instruction *in);
+void print_instruction(FILE *out, asm_instruction *in);
 void emit_statement(ast_node *node, program_code *code);
 operand emit_expression(ast_node *node, program_code *code);
-operand scratch_register(operand_size size);
+operand scratch_register(int size);
 void free_scratch_register();
 void emit_move(program_code *code, operand Dst, operand Src);
 bool is_pointer_math_op(program_code *code, ast_node *Node);
-operand emit_pointer_math_op(program_code *code, ast_node *Operand);
+operand emit_pointer_math_op(program_code *code, ast_node *Operand, register_id OutputReg);
 void emit_free_all_scratch_registers(program_code *code);
+operand emit_dereference(program_code *code, ast_node *OperandNode, register_id OutputReg);
+
+void dbg_operand(operand op);
+void dbg_instr(asm_instruction *in);
