@@ -7,6 +7,7 @@ int printf(*char format, ...);
 int scanf(*char format, ...);
 uint64 strlen(*char string);
 int putchar(int ch);
+int atoi(*char str);
 
 void read_line_into(*char into) {
     scanf(" %[^\n]", into);
@@ -30,8 +31,16 @@ uint64 string_length(*char str) {
     return result;
 }
 
-int main() {
-    int a = 1, b = 1;
+int main(int argc, **char argv) {
+    int a, b;
+
+    if (argc != 3) {
+        printf("Usage: %s <a> <b>\n", argv[0]);
+        return 1;
+    }
+
+    a = atoi(argv[1]);
+    b = atoi(argv[2]);
 
     if (a || b) {
         puts("Either a or b is nonzero.");

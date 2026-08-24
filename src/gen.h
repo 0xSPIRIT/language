@@ -178,9 +178,9 @@ operand scratch_register(int size);
 void free_scratch_register();
 void emit_move(program_code *code, operand Dst, operand Src);
 bool is_pointer_math_op(program_code *code, ast_node *Node);
-operand emit_pointer_math_op(program_code *code, ast_node *Operand, register_id OutputReg);
+operand emit_pointer_math_op(program_code *code, ast_node *Operand, int *OutSize);
 void emit_free_all_scratch_registers(program_code *code);
-operand emit_dereference(program_code *code, ast_node *OperandNode, register_id OutputReg);
+operand emit_dereference(program_code *code, ast_node *OperandNode);
 
 void dbg_operand(operand op);
 void dbg_instr(asm_instruction *in);

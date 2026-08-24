@@ -258,6 +258,8 @@ bool is_return(parser *p) { return expect(p, TOKEN_KEYWORD) && peek(p)->Keyword 
 type get_data_type(string s) {
     if (string_equals(s, CSTR("int")))
         return TYPE_S32;
+    else if (string_equals(s, CSTR("short")))
+        return TYPE_S16;
     else if (string_equals(s, CSTR("int8")))
         return TYPE_S8;
     else if (string_equals(s, CSTR("int16")))
@@ -835,7 +837,9 @@ ast_node *parse_function(parser *p) {
 }
 
 bool is_node_dereference(ast_node *node) {
-    return node->Type == NODE_UNARY_OP && node->UnaryOp.Operation == TOKEN_STAR;
+    node_type Type = node->Type;
+    token_type Operation = node->UnaryOp.Operation;
+    return (Type == NODE_UNARY_OP && Operation == TOKEN_STAR) || (Type == NODE_BINARY_OP && Operation == TOKEN_OPEN_SQUARE);
 }
 
 int get_top_level_function_count(parser *p) {

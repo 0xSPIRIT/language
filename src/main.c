@@ -12,16 +12,18 @@
 int main(int argc, char **argv) {
     memory_arena Arena = make_arena();
 
-    string Filename;
+    string Filepath;
 
     if (argc == 1)
-        Filename = CSTR("../test/b.k");
+        Filepath = CSTR("../test/b.k");
     else
-        Filename = (string){argv[1], strlen(argv[1])};
+        Filepath = (string){argv[1], strlen(argv[1])};
 
-    string Code = read_entire_file(&Arena, Filename.Data);
+    string Filename = strip_file_extension(get_filename_from_path(Filepath));
 
-    token_list Tokens = tokenize(&Arena, Code, Filename);
+    string Code = read_entire_file(&Arena, Filepath.Data);
+
+    token_list Tokens = tokenize(&Arena, Code, Filepath);
 
     if (Tokens.Tokens) {
         ast_node *Tree = parse(&Arena, Tokens);
@@ -36,29 +38,55 @@ int main(int argc, char **argv) {
 
         FILE *Out;
 
-        Out = fopen("test.s", "w");
+        {
+            char AsmFilename[2048];
+            sprintf(AsmFilename, "%.*s.s", (int)Filename.Length, Filename.Data);
+            Out = fopen(AsmFilename, "w");
+        }
 
         program_code Program = gen_program_code(Out, &Arena, Tree);
 
         fclose(Out);
 
         printf("-- generated assembly --\n");
-        system("cat test.s");
+        {
+            char Cmd[2048];
+            sprintf(Cmd, "cat %.*s.s", (int)Filename.Length, Filename.Data);
+            system(Cmd);
+        }
         printf("-- end assembly --\n");
 
         int result;
 
         printf("\nAssembling...\n");
-        result = system("as --gdwarf-5 -o test.o test.s");
+        {
+            char Cmd[2048];
+            sprintf(Cmd,
+                    "as --gdwarf-5 -o %.*s.o %.*s.s",
+                    (int)Filename.Length,
+                    Filename.Data,
+                    (int)Filename.Length,
+                    Filename.Data);
+            result = system(Cmd);
+        }
 
         if (!result) {
             printf("Assembler successful.\n");
 
             printf("Linking...\n");
-            result = system("gcc -o test test.o");
+            {
+                char Cmd[2048];
+                sprintf(Cmd,
+                        "gcc -o %.*s %.*s.o\n",
+                        (int)Filename.Length,
+                        Filename.Data,
+                        (int)Filename.Length,
+                        Filename.Data);
+                result = system(Cmd);
+            }
 
             if (!result) {
-                printf("Compilation completed. Output: ./test\n");
+                printf("Compilation completed. Output: ./%.*s\n", (int)Filename.Length, Filename.Data);
             } else {
                 printf("Compilation failed.\n");
             }
