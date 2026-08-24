@@ -24,16 +24,14 @@ int main(int argc, char **argv) {
     string Code = read_entire_file(&Arena, Filepath.Data);
 
     memory_arena TokenArena = make_arena();
-    token_list Tokens = tokenize(&TokenArena, &Arena, Code, Filepath);
+    token_list Tokens       = tokenize(&TokenArena, &Arena, Code, Filepath);
 
     if (Tokens.Tokens) {
+        printf("Parsing...\n");
         ast_node *Tree = parse(&Arena, Tokens);
 
+        printf("Resolving symbols...\n");
         resolve_symbols(Tree);
-
-        printf("-- input code --\n");
-        string_print(Code);
-        printf("-- end code --\n\n");
 
         FILE *Out;
 
@@ -43,29 +41,17 @@ int main(int argc, char **argv) {
             Out = fopen(AsmFilename, "w");
         }
 
+        printf("Compiling...\n");
         program_code Program = gen_program_code(Out, &Arena, Tree);
 
         fclose(Out);
 
-        printf("-- generated assembly --\n");
-        {
-            char Cmd[2048];
-            sprintf(Cmd, "cat %.*s.s", (int)Filename.Length, Filename.Data);
-            system(Cmd);
-        }
-        printf("-- end assembly --\n");
-
         int result;
 
-        printf("\nAssembling...\n");
+        printf("Assembling...\n");
         {
             char Cmd[2048];
-            sprintf(Cmd,
-                    "as --gdwarf-5 -o %.*s.o %.*s.s",
-                    (int)Filename.Length,
-                    Filename.Data,
-                    (int)Filename.Length,
-                    Filename.Data);
+            sprintf(Cmd, "as --gdwarf-5 -o %.*s.o %.*s.s", (int)Filename.Length, Filename.Data, (int)Filename.Length, Filename.Data);
             result = system(Cmd);
         }
 
@@ -75,12 +61,7 @@ int main(int argc, char **argv) {
             printf("Linking...\n");
             {
                 char Cmd[2048];
-                sprintf(Cmd,
-                        "gcc -o %.*s %.*s.o\n",
-                        (int)Filename.Length,
-                        Filename.Data,
-                        (int)Filename.Length,
-                        Filename.Data);
+                sprintf(Cmd, "gcc -o %.*s %.*s.o\n", (int)Filename.Length, Filename.Data, (int)Filename.Length, Filename.Data);
                 result = system(Cmd);
             }
 

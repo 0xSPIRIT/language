@@ -2,26 +2,31 @@
 
 void nop() {}
 
-void read_entire_file(*char filepath) {
+int read_entire_file(*char filepath) {
     *FILE fp = fopen(filepath, "r");
 
-    if (fp == 0) {
-        printf("Couldn't open the file.");
+    if (!fp) {
+        printf("Couldn't open the file.\n");
+        return 0;
     }
 
-    fseek(fp, 0, 2); // SEEK_SET = 2
-
+    fseek(fp, 0, 2); // SEEK_END = 2
     uint64 size = ftell(fp);
-
     rewind(fp);
 
     *char buffer = malloc(size + 1);
 
     uint64 count = fread(buffer, 1, size, fp);
 
+    buffer[count] = 0;
+
     fclose(fp);
 
     puts(buffer);
+
+    free(buffer);
+
+    return 1;
 }
 
 void linked_list() {
@@ -50,7 +55,6 @@ int main(int argc, **char argv) {
     }
 
     read_entire_file(argv[1]);
-    linked_list();
 
     return 67;
 }

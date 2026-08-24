@@ -1,1 +1,8 @@
-#include
+fix return; on void functions
+
+global variables
+
+constants (store in rodata)
+
+functions within functions, generate the unique label based on scope to prevent name conflicts
+  give each scope an int id

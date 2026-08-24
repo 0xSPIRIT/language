@@ -1587,7 +1587,7 @@ void print_instruction(FILE *out, asm_instruction *in) {
             break;
         }
         default: {
-            fprintf(out, "%s ", instruction_name(in->Op));
+            fprintf(out, "%s\t", instruction_name(in->Op));
 
             int NumberOperands = number_operands(in->Op);
 
