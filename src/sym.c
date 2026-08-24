@@ -1,7 +1,6 @@
 #include "sym.h"
 
 #include <assert.h>
-#include <signal.h>
 #include <string.h>
 
 #include "parser.h"
@@ -169,9 +168,14 @@ int resolve_type_info(memory_arena *arena, scopes *Scopes, ast_node *Type, type_
             TypeInfo->Size = 8;
         }
     } else if (DataType == TYPE_STRUCT) {
-        symbol *StructRef    = resolve_struct_symbol(Type, CurrentScope);
-        TypeInfo->StructType = StructRef;
-        TypeInfo->Size       = StructRef->TypeInfo.Size;
+        symbol *StructRef = resolve_struct_symbol(Type, CurrentScope);
+
+        if (StructRef) {
+            TypeInfo->StructType = StructRef;
+            TypeInfo->Size       = StructRef->TypeInfo.Size;
+        } else {
+            TypeInfo->UndeclaredStructName = Type->DataType.Name->Ident.Name;
+        }
     } else {
         // Primitive type, get size directly.
         TypeInfo->Size = get_type_size(DataType);
@@ -299,6 +303,10 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
         symbol *NodeSym   = search_for_symbol(node->Ident.Name, Scopes);
         symbol *StructRef = NodeSym->TypeInfo.StructType;
 
+        if (!StructRef && NodeSym->TypeInfo.PointingTo) {
+            StructRef = NodeSym->TypeInfo.PointingTo->StructType;
+        }
+
         node->Ident.Sym = NodeSym;
         return StructRef;
     } else if (node->Type == NODE_BINARY_OP) {
@@ -327,9 +335,26 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
                 node->BinaryOp.Right->Ident.Sym = FieldSym;
 
                 if (!FieldSym) {
-                    parse_error(0, "Couldn't find field in struct.");
+                    // parse_error(0, "Couldn't find field in struct.");
                 } else {
-                    symbol *StructRef = FieldSym->TypeInfo.StructType;
+                    type_info *TypeInfo = &FieldSym->TypeInfo;
+
+                    while (TypeInfo->PointingTo) TypeInfo = TypeInfo->PointingTo;
+
+                    symbol *StructRef = TypeInfo->StructType;
+
+                    // Resolve forward declaration if StructRef is null
+                    if (!StructRef && TypeInfo->UndeclaredStructName.Length > 0) {
+                        string StructName = TypeInfo->UndeclaredStructName;
+
+                        StructRef = search_for_symbol(StructName, Scopes);
+
+                        TypeInfo->StructType = StructRef;
+
+                        if (!StructRef) {
+                            parse_error(0, "Couldn't find structure %.*s\n", (int)StructName.Length, StructName.Data);
+                        }
+                    }
 
                     return StructRef;
                 }
@@ -358,6 +383,8 @@ int resolve_struct_decl_field(memory_arena *arena, scopes *Scopes, symbol *struc
     // Point the identifier to the created field symbol.
     var_decl->VarDecl.Name->Ident.Sym = CreatedSymbol;
 
+    var_decl->Scope = Scopes->CurrentScope;
+
     return FieldSym.TypeInfo.Size;
 }
 
@@ -365,6 +392,7 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbo
     if (!node) return;
 
     symbols_scope *CurrentScope = Scopes->CurrentScope;
+    node->Scope                 = CurrentScope;
 
     switch (node->Type) {
         case NODE_IDENT: {
@@ -391,8 +419,7 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbo
             break;
         }
         case NODE_TYPE: {
-            if (node->DataType.Type == TYPE_STRUCT)
-                _resolve_symbols(arena, node->DataType.Name, Scopes, current_symbol, false);
+            if (node->DataType.Type == TYPE_STRUCT) _resolve_symbols(arena, node->DataType.Name, Scopes, current_symbol, false);
             break;
         }
         case NODE_VAR_DECL: {
@@ -513,8 +540,6 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbo
                         resolve_struct_decl_field(arena, Scopes, &StructSymbol, FieldVarDecl->VarDecl.ChildDecls[i]);
                 }
             }
-
-            printf("Got struct size: %d\n", StructSymbol.TypeInfo.Size);
 
             resolve(node, push_symbol(arena, CurrentScope, StructSymbol));
             break;

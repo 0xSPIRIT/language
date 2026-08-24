@@ -1,5 +1,8 @@
 #include "lexer.h"
 
+#include <assert.h>
+#include <string.h>
+
 #include "util/util.h"
 
 char *token_name(token_type type) {
@@ -114,25 +117,21 @@ keyword keyword_from_index(int Index) {
 
 string get_keyword_str(keyword Keyword) { return Keywords[(int)(Keyword - 1)]; }
 
-token_list tokenize(memory_arena *arena, string code, string filename) {
-    // Overestimate the number of tokens.
-    token *Tokens     = (token *)arena_push(arena, sizeof(token) * code.Length);
-    size_t TokenCount = 0;
+void push_token(memory_arena *arena, token Token) {
+    token *Tok = arena_push(arena, sizeof(token));
+    *Tok       = Token;
+}
 
+token_list tokenize(memory_arena *TokenArena, memory_arena *GeneralArena, string code, string filename) {
     size_t Line = 1;
     size_t Col  = 1;
-
-    if (!Tokens) {
-        return (token_list){};
-    }
 
     for (size_t i = 0; i < code.Length; i++) {
         char ch = code.Data[i];
 
         // Comment
-        if (ch == '/' && i+1 < code.Length && code.Data[i+1] == '/') {
-            while (i == code.Length || code.Data[i] != '\n')
-                i++;
+        if (ch == '/' && i + 1 < code.Length && code.Data[i + 1] == '/') {
+            while (i == code.Length || code.Data[i] != '\n') i++;
 
             continue;
         }
@@ -142,11 +141,39 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             i++;
 
             const string Include = CSTR("include");
-            string Str = { code.Data + i, Include.Length };
+            string Str           = {code.Data + i, Include.Length};
 
             if (string_equals(Str, Include)) {
-                Tokens[TokenCount++] = (token){TOKEN_INCLUDE, Str};
                 i += Include.Length;
+
+                while (is_whitespace(code.Data[i++]));
+                assert(code.Data[i - 1] == '"');
+
+                string IncludedFilename = {code.Data + i, 0};
+                int Start               = i;
+
+                while (code.Data[i] != '"' && code.Data[i] != '\n') i++;
+
+                assert(code.Data[i] == '"');
+
+                IncludedFilename.Length = i - Start;
+
+                string Cwd = get_filepath(filename);
+
+                char IncludedFilepath[256] = {};
+
+                memcpy(IncludedFilepath, Cwd.Data, Cwd.Length);
+                memcpy(IncludedFilepath + Cwd.Length, IncludedFilename.Data, IncludedFilename.Length);
+                int Length = Cwd.Length + IncludedFilename.Length;
+
+                string CodeForFile = read_entire_file(GeneralArena, IncludedFilepath);
+
+                if (CodeForFile.Data) {
+                    // tokens are pushed to the same arena, so we are good.
+                    tokenize(TokenArena, GeneralArena, CodeForFile, (string){IncludedFilepath, Length});
+                } else {
+                    printf("Error: couldn't read file %.*s\n", (int)IncludedFilename.Length, IncludedFilename.Data);
+                }
             }
 
             continue;
@@ -170,7 +197,7 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             tok.Type   = TOKEN_NUMBER;
             tok.String = (string){code.Data + Start, i - Start + 1};
 
-            Tokens[TokenCount++] = tok;
+            push_token(TokenArena, tok);
 
             continue;
         }
@@ -180,7 +207,7 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             string Str = {code.Data + i, Sizeof.Length};
 
             if (string_equals(Str, Sizeof)) {
-                Tokens[TokenCount++] = (token){TOKEN_SIZEOF, Str};
+                push_token(TokenArena, (token){TOKEN_SIZEOF, Str});
                 i += Sizeof.Length - 1;
                 continue;
             }
@@ -190,7 +217,7 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
             string Str = {code.Data + i, 3};
 
             if (string_equals(Str, CSTR("..."))) {
-                Tokens[TokenCount++] = (token){TOKEN_ELLIPSES, Str};
+                push_token(TokenArena, (token){TOKEN_ELLIPSES, Str});
                 i += 2;
                 continue;
             }
@@ -214,14 +241,15 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
 
             if (!tok.Type) tok.Type = TOKEN_IDENTIFIER;
 
-            Tokens[TokenCount++] = tok;
+            push_token(TokenArena, tok);
 
             continue;
         }
 
         if (ch == '"') {
-            int Start            = i;
-            Tokens[TokenCount++] = (token){TOKEN_QUOTE, CSTR("\"")};
+            int Start = i;
+
+            push_token(TokenArena, (token){TOKEN_QUOTE, CSTR("\"")});
 
             i++;
 
@@ -239,15 +267,15 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
 
             string Str = {code.Data + Start + 1, StringLength};
 
-            Tokens[TokenCount++] = (token){TOKEN_STRING_LIT, Str};
-            Tokens[TokenCount++] = (token){TOKEN_QUOTE, CSTR("\"")};
+            push_token(TokenArena, (token){TOKEN_STRING_LIT, Str});
+            push_token(TokenArena, (token){TOKEN_QUOTE, CSTR("\"")});
 
             continue;
         } else if (ch == '\'') {
-            Tokens[TokenCount++] = (token){TOKEN_CHAR_QUOTE, CSTR("'")};
-            string Str           = {code.Data + i + 1, 1};
-            Tokens[TokenCount++] = (token){TOKEN_CHAR_LIT, Str};
-            Tokens[TokenCount++] = (token){TOKEN_CHAR_QUOTE, CSTR("'")};
+            push_token(TokenArena, (token){TOKEN_CHAR_QUOTE, CSTR("'")});
+            string Str = {code.Data + i + 1, 1};
+            push_token(TokenArena, (token){TOKEN_CHAR_LIT, Str});
+            push_token(TokenArena, (token){TOKEN_CHAR_QUOTE, CSTR("'")});
 
             i += 2;
             continue;
@@ -284,7 +312,7 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
                 Type = TOKEN_DEC;
 
             if (Type) {
-                Tokens[TokenCount++] = (token){Type, Str};
+                push_token(TokenArena, (token){Type, Str});
                 i++;
             } else {
                 goto single;
@@ -294,9 +322,10 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
         } else if (is_single(ch)) {
         single:
             token tok;
-            tok.Type             = (token_type)ch;
-            tok.String           = (string){code.Data + i, 1};
-            Tokens[TokenCount++] = tok;
+            tok.Type   = (token_type)ch;
+            tok.String = (string){code.Data + i, 1};
+
+            push_token(TokenArena, tok);
 
             continue;
         }
@@ -306,5 +335,7 @@ token_list tokenize(memory_arena *arena, string code, string filename) {
         printf(" line %zu, column %zu\n", Line, Col);
     }
 
-    return (token_list){Tokens, TokenCount};
+    token_list Result = {(token *)TokenArena->Data, TokenArena->Used / sizeof(token)};
+
+    return Result;
 }

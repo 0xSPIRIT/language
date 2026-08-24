@@ -111,4 +111,4 @@ bool is_token_binary_op(token_type type);
 string get_keyword_str(keyword Keyword);
 keyword keyword_from_index(int Index);
 
-token_list tokenize(memory_arena *arena, string code, string filename);
+token_list tokenize(memory_arena *TokenArena, memory_arena *GeneralArena, string code, string filename);

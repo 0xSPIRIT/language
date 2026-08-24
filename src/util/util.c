@@ -27,6 +27,19 @@ string read_entire_file(memory_arena *arena, const char *fp) {
     return (string){Buffer, Count};
 }
 
+string get_filepath(string Filename) {
+    string Result = Filename;
+
+    for (int i = Result.Length - 1; i >= 0; i--) {
+        if (Result.Data[i] == '/') {
+            Result.Length = Max(0, i + 1);
+            break;
+        }
+    }
+
+    return Result;
+}
+
 string get_filename_from_path(string Filepath) {
     string Result = Filepath;
 

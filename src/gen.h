@@ -181,6 +181,7 @@ bool is_pointer_math_op(program_code *code, ast_node *Node);
 operand emit_pointer_math_op(program_code *code, ast_node *Operand, int *OutSize);
 void emit_free_all_scratch_registers(program_code *code);
 operand emit_dereference(program_code *code, ast_node *OperandNode);
+type_info get_type_info_from_operand(ast_node *Node, bool Principal);
 
 void dbg_operand(operand op);
 void dbg_instr(asm_instruction *in);

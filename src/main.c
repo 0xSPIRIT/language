@@ -23,14 +23,13 @@ int main(int argc, char **argv) {
 
     string Code = read_entire_file(&Arena, Filepath.Data);
 
-    token_list Tokens = tokenize(&Arena, Code, Filepath);
+    memory_arena TokenArena = make_arena();
+    token_list Tokens = tokenize(&TokenArena, &Arena, Code, Filepath);
 
     if (Tokens.Tokens) {
         ast_node *Tree = parse(&Arena, Tokens);
 
         resolve_symbols(Tree);
-
-        print_tree(Tree);
 
         printf("-- input code --\n");
         string_print(Code);

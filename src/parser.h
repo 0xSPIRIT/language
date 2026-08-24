@@ -26,7 +26,6 @@ typedef enum {
     NODE_FOR,
     NODE_STRUCT,
     NODE_CALL,
-    NODE_INCLUDE,
     NODE_BINARY_OP,
     NODE_UNARY_OP,
     NODE_IDENT,
@@ -47,11 +46,6 @@ typedef struct ast_node {
             struct ast_node **GlobalDecls;  // array of NODE_VAR_DECL
             int GlobalDeclCount;
         } Program;
-
-        // NODE_INCLUDE
-        struct {
-            string Filename;
-        } Include;
 
         // NODE_FUNC_DEF
         struct {
@@ -159,6 +153,7 @@ typedef struct ast_node {
         } Ident;
     };
 
+    struct symbols_scope *Scope;
     int Line, Col;
 } ast_node;
 

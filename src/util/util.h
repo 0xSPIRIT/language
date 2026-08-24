@@ -65,5 +65,8 @@
 #define FG_COLOR(id) "\x1b[38;5;" #id "m" // gray from 232 to 255
 
 string read_entire_file(memory_arena *arena, const char *fp);
+string get_filename_from_path(string Filepath);
+string get_filepath(string Filename);
+string strip_file_extension(string Filename);
 bool output_data_to_file(string data, const char *filename);
 void print_stack_trace(); 

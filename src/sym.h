@@ -39,6 +39,7 @@ typedef struct type_info {
     bool IsArray;
     struct symbol *StructType;
     struct type_info *PointingTo;
+    string UndeclaredStructName;  // Forward declarations.
 } type_info;
 
 typedef struct symbol {
@@ -73,8 +74,7 @@ struct ast_node;
 
 int resolve_type_size(struct ast_node *type);
 struct ast_node *get_node_identifier(struct ast_node *node);
-void _resolve_symbols(
-    memory_arena *arena, struct ast_node *node, scopes *Scopes, symbol current_symbol, bool must_exist);
+void _resolve_symbols(memory_arena *arena, struct ast_node *node, scopes *Scopes, symbol current_symbol, bool must_exist);
 int get_type_size(type t);
 symbols_scope *push_scope(memory_arena *Arena, scopes *Scopes);
 void pop_scope(scopes *Scopes);

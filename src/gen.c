@@ -387,6 +387,55 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
     return Reg(REG_RAX, Size);
 }
 
+operand emit_member_access(program_code *code, ast_node *Left, ast_node *Right) {
+    assert(Right->Type == NODE_IDENT);
+    assert(Right->Ident.Sym);
+    assert(Right->Ident.Sym->Type == SYM_FIELD);
+
+    operand Structure;
+
+    if (Left->Type == NODE_IDENT) {
+        assert(Left->Ident.Sym);
+        Structure = emit_expression(Left, code);
+    } else if (Left->Type == NODE_BINARY_OP && Left->BinaryOp.Operation == TOKEN_DOT) {
+        Structure = emit_member_access(code, Left->BinaryOp.Left, Left->BinaryOp.Right);
+    } else {
+        emit_error("Left side of . must be an identifier or another member access");
+        assert(false);
+        return (operand){};
+    }
+
+    type_info LeftType = get_type_info_from_operand(Left, true);
+
+    bool IsPtr = !LeftType.StructType && LeftType.PointingTo->StructType;
+
+    assert(LeftType.StructType || (LeftType.PointingTo && LeftType.PointingTo->StructType));
+
+    if (IsPtr) {
+        emit_move(code, Reg(REG_RAX, 8), Structure);
+    }
+
+    assert(Structure.Type == OPERAND_MEM);
+
+    operand Result = {};
+
+    symbol *FieldSym = Right->Ident.Sym;
+
+    Result.Type          = OPERAND_MEM;
+    Result.Size          = FieldSym->TypeInfo.Size;
+    Result.Mem.IsAddress = false;
+
+    if (IsPtr) {
+        Result.Mem.Base         = REG_RAX;
+        Result.Mem.Displacement = ConstDisplacement(FieldSym->FieldOffset);
+    } else {
+        Result.Mem = Structure.Mem;
+        Result.Mem.Displacement.Value += FieldSym->FieldOffset;
+    }
+
+    return Result;
+}
+
 bool expr_may_clobber_rax(ast_node *node) {
     switch (node->Type) {
         case NODE_INT_LIT:
@@ -403,7 +452,8 @@ operand emit_binop(ast_node *node, program_code *code) {
     operand Left, Right;
     bool UsedScratch = false;
 
-    if (Op != TOKEN_OPEN_SQUARE) {
+    // For array accesses or member accesses, converting the ast_nodes to operands are handled on their own
+    if (Op != TOKEN_OPEN_SQUARE && Op != TOKEN_DOT) {
         Left = emit_expression(node->BinaryOp.Left, code);
 
         operand SafeLeft;
@@ -478,6 +528,11 @@ operand emit_binop(ast_node *node, program_code *code) {
 
         case TOKEN_OR: {
             Result = emit_or(code, Left, Right);
+            break;
+        }
+
+        case TOKEN_DOT: {
+            Result = emit_member_access(code, node->BinaryOp.Left, node->BinaryOp.Right);
             break;
         }
 
@@ -577,19 +632,23 @@ type_info get_type_info_from_operand(ast_node *Node, bool Principal) {
         case NODE_BINARY_OP: {
             token_type Op = Node->BinaryOp.Operation;
 
-            if (Op != TOKEN_OPEN_SQUARE && Op != TOKEN_PLUS && Op != TOKEN_MINUS) return Result;
+            if (Op != TOKEN_OPEN_SQUARE && Op != TOKEN_DOT && Op != TOKEN_PLUS && Op != TOKEN_MINUS) return Result;
 
             IsDereferencing = (Op == TOKEN_OPEN_SQUARE);
 
             type_info A = get_type_info_from_operand(Node->BinaryOp.Left, Principal);
             type_info B = get_type_info_from_operand(Node->BinaryOp.Right, Principal);
 
-            if (A.IndirectionDepth > 0 && B.IndirectionDepth > 0) {
-                emit_error("Pointer math can only be done with one pointer operand.");
-            } else if (A.IndirectionDepth > 0) {
-                Result = A;
-            } else {
+            if (Op == TOKEN_DOT) {
                 Result = B;
+            } else {
+                if (A.IndirectionDepth > 0 && B.IndirectionDepth > 0) {
+                    emit_error("Pointer math can only be done with one pointer operand.");
+                } else if (A.IndirectionDepth > 0) {
+                    Result = A;
+                } else {
+                    Result = B;
+                }
             }
             break;
         }
@@ -734,7 +793,7 @@ operand emit_pointer_math_op(program_code *code, ast_node *Node, int *OutSize) {
                     ast_node *NodeLeft  = Node->BinaryOp.Left;
                     ast_node *NodeRight = Node->BinaryOp.Right;
 
-                    operand Left  = emit_expression(NodeLeft, code);
+                    operand Left = emit_expression(NodeLeft, code);
 
                     assert(Left.Type == OPERAND_MEM);
 
@@ -878,8 +937,6 @@ operand emit_call(ast_node *node, program_code *code) {
 
     func_data FuncData = node->Call.FuncName->Ident.Sym->Function;
     bool IsVariadic    = FuncData.IsVariadic;
-
-    printf("%.*s %d\n", (int)node->FuncDef.Name->Ident.Name.Length, node->FuncDef.Name->Ident.Name.Data, IsVariadic);
 
     const int FloatCount = 0;
 
@@ -1107,9 +1164,6 @@ void emit_statement(ast_node *node, program_code *code) {
             for (int i = 0; i < node->Program.FunctionCount; i++) {
                 emit_statement(node->Program.Functions[i], code);
             }
-            break;
-        }
-        case NODE_INCLUDE: {
             break;
         }
         case NODE_FUNC_DEF: {

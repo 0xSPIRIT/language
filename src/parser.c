@@ -260,6 +260,8 @@ type get_data_type(string s) {
         return TYPE_S32;
     else if (string_equals(s, CSTR("short")))
         return TYPE_S16;
+    else if (string_equals(s, CSTR("long")))
+        return TYPE_S32;
     else if (string_equals(s, CSTR("int8")))
         return TYPE_S8;
     else if (string_equals(s, CSTR("int16")))
@@ -631,23 +633,6 @@ ast_node *parse_continue(parser *p) {
 
     return Node;
 }
-
-bool is_include(parser *p) { return expect(p, TOKEN_INCLUDE); }
-
-ast_node *parse_include(parser *p) {
-    ast_node *Node = node(p, NODE_INCLUDE);
-
-    consume(p, TOKEN_INCLUDE);
-
-    if (expect(p, TOKEN_QUOTE)) {
-        consume(p, TOKEN_QUOTE);
-        Node->Include.Filename = advance(p)->String;
-        consume(p, TOKEN_QUOTE);
-    }
-
-    return Node;
-}
-
 node_type next_statement_type(parser *p) {
     if (is_struct(p)) return NODE_STRUCT;
     if (is_if(p)) return NODE_IF;
@@ -660,7 +645,6 @@ node_type next_statement_type(parser *p) {
     if (is_var_decl(p)) return NODE_VAR_DECL;
     if (is_break(p)) return NODE_BREAK;
     if (is_continue(p)) return NODE_CONTINUE;
-    if (is_include(p)) return NODE_INCLUDE;
 
     // Not on this predefined list of operations, so we evaluate it in parser_expressions.c
 
@@ -679,8 +663,7 @@ ast_node *parse_statement(parser *p, node_type type) {
 
             ExpectSemicolon = true;
             break;
-        case NODE_BLOCK:   Node = parse_block(p); break;
-        case NODE_INCLUDE: Node = parse_include(p); break;
+        case NODE_BLOCK: Node = parse_block(p); break;
         case NODE_RETURN:
             Node = parse_return(p);
 
@@ -837,7 +820,7 @@ ast_node *parse_function(parser *p) {
 }
 
 bool is_node_dereference(ast_node *node) {
-    node_type Type = node->Type;
+    node_type Type       = node->Type;
     token_type Operation = node->UnaryOp.Operation;
     return (Type == NODE_UNARY_OP && Operation == TOKEN_STAR) || (Type == NODE_BINARY_OP && Operation == TOKEN_OPEN_SQUARE);
 }
@@ -849,8 +832,7 @@ int get_top_level_function_count(parser *p) {
     do {
         if (is_function(p)) {
             Count++;
-            while (has_next(p) && (peek(p)->Type != TOKEN_OPEN_SCOPE && peek(p)->Type != TOKEN_END_STATEMENT))
-                advance(p);
+            while (has_next(p) && (peek(p)->Type != TOKEN_OPEN_SCOPE && peek(p)->Type != TOKEN_END_STATEMENT)) advance(p);
             move_to_end_of_block(p);
         } else {
             advance(p);
@@ -1064,8 +1046,7 @@ void print_node(ast_node *node) {
             printf(ANSI_DIM " }" ANSI_RESET);
             break;
         case NODE_UNARY_OP:
-            printf(ANSI_DIM "{ Op: " ANSI_RESET "%s, " ANSI_DIM "Operand: " ANSI_RESET,
-                   token_name(node->UnaryOp.Operation));
+            printf(ANSI_DIM "{ Op: " ANSI_RESET "%s, " ANSI_DIM "Operand: " ANSI_RESET, token_name(node->UnaryOp.Operation));
             print_node(node->UnaryOp.Operand);
             printf(ANSI_DIM ", First: " ANSI_FG_MAGENTA "%s" ANSI_RESET, node->UnaryOp.First ? "true" : "false");
             printf(ANSI_DIM " }" ANSI_RESET);
@@ -1083,10 +1064,6 @@ void print_node(ast_node *node) {
             }
 
             printf(ANSI_DIM " }");
-            break;
-        case NODE_INCLUDE:
-            printf(ANSI_FG_BRIGHT_YELLOW "include " ANSI_RESET);
-            string_print_b(node->Include.Filename);
             break;
         default: printf("(didn't implement printing for node type %d yet!)", node->Type); break;
     }
