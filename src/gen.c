@@ -984,25 +984,37 @@ operand emit_expression(ast_node *node, program_code *code) {
         case NODE_IDENT: {
             symbol *Sym = node->Ident.Sym;
 
-            if (Sym->Section == SECTION_REG) {
-                Result.Type         = OPERAND_REG;
-                Result.Size         = Sym->TypeInfo.Size;
-                Result.Reg.Register = ParamRegisters[Sym->ParamIndex];
-            } else {
-                Result.Type = OPERAND_MEM;
-
-                if (Sym->TypeInfo.IsArray) {
-                    Result.Size          = 8;
-                    Result.Mem.IsAddress = true;
-                } else {
-                    Result.Size = Sym->TypeInfo.Size;
+            switch (Sym->Section) {
+                case SECTION_REG: {
+                    Result.Type         = OPERAND_REG;
+                    Result.Size         = Sym->TypeInfo.Size;
+                    Result.Reg.Register = ParamRegisters[Sym->ParamIndex];
+                    break;
                 }
+                case SECTION_STACK: {
+                    Result.Type = OPERAND_MEM;
 
-                if (Sym->Section == SECTION_STACK) {
-                    Result.Mem.Base         = REG_RBP;
-                    Result.Mem.Displacement = ConstDisplacement(-Sym->StackOffset);
+                    if (Sym->TypeInfo.IsArray) {
+                        Result.Size          = 8;
+                        Result.Mem.IsAddress = true;
+                    } else {
+                        Result.Size = Sym->TypeInfo.Size;
+                    }
+
+                    if (Sym->Section == SECTION_STACK) {
+                        Result.Mem.Base         = REG_RBP;
+                        Result.Mem.Displacement = ConstDisplacement(-Sym->StackOffset);
+                    }
+                    break;
+                }
+                case SECTION_BSS: {
+                    break;
+                }
+                case SECTION_DATA: {
+                    break;
                 }
             }
+
             break;
         }
         case NODE_CHAR_LIT: {
@@ -1142,18 +1154,33 @@ void emit_var_decl(program_code *code, ast_node *node) {
     ast_node *Ident = node->VarDecl.Name;
     symbol *Sym     = Ident->Ident.Sym;
 
-    int Offset = Sym->StackOffset;
+    switch (Sym->Section) {
+        case SECTION_STACK: {
+            int Offset = Sym->StackOffset;
 
-    // Variable is stored at [rbp - Offset]
-    operand Mem = {
-        .Type = OPERAND_MEM,
-        .Size = Sym->TypeInfo.Size,
-        .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Displacement = ConstDisplacement(-Offset)}
-    };
+            // Variable is stored at [rbp - Offset]
+            operand Mem = {
+                .Type = OPERAND_MEM,
+                .Size = Sym->TypeInfo.Size,
+                .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Displacement = ConstDisplacement(-Offset)}
+            };
 
-    operand Value = emit_expression(Init, code);
+            operand Value = emit_expression(Init, code);
 
-    emit_move(code, Mem, Value);
+            emit_move(code, Mem, Value);
+            break;
+        }
+        case SECTION_BSS: {
+            break;
+        }
+        case SECTION_DATA: {
+            break;
+        }
+        case SECTION_REG: {
+            assert(false);
+            break;
+        }
+    }
 }
 
 void emit_statement(ast_node *node, program_code *code) {
@@ -1340,11 +1367,12 @@ void emit_statement(ast_node *node, program_code *code) {
             break;
         }
         case NODE_RETURN: {
-            ast_node *Val   = node->Return.Value;
-            operand Operand = emit_expression(Val, code);
+            ast_node *Val = node->Return.Value;
 
-            // TODO: What if we return a struct (or float)?
-            emit_move(code, Reg(REG_RAX, code->CurrentFunctionReturnSize), Operand);
+            if (Val) {
+                operand Operand = emit_expression(Val, code);
+                emit_move(code, Reg(REG_RAX, code->CurrentFunctionReturnSize), Operand);
+            }
 
             emit_jump(code, function_end_label(code));
             break;
@@ -1638,7 +1666,7 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
         for (int i = 0; i < Code.RodataEntryCount; i++) {
             rodata_entry *Entry = Code.RodataEntries + i;
 
-            if (Entry->Type == RODATA_STRING_LIT) {
+            if (Entry->Type == STRING_LIT) {
                 fprintf(out,
                         ".%.*s: .asciz \"%.*s\"\n",
                         (int)Entry->Label.Length,
@@ -1649,6 +1677,30 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
         }
 
         fprintf(out, "\n");
+    }
+
+    if (Code.DataEntryCount > 0) {
+        fprintf(out, ".section .data\n");
+
+        for (int i = 0; i < Code.DataEntryCount; i++) {
+            data_entry *Entry = Code.DataEntries + i;
+
+            if (Entry->Type == STRING_LIT) {
+            } else if (Entry->Type == INT_LIT) {
+            }
+        }
+    }
+
+    if (Code.DataEntryCount > 0) {
+        fprintf(out, ".section .bss\n");
+
+        for (int i = 0; i < Code.BssEntryCount; i++) {
+            bss_entry *Entry = Code.BssEntries + i;
+
+            if (Entry->Type == STRING_LIT) {
+            } else if (Entry->Type == INT_LIT) {
+            }
+        }
     }
 
     fprintf(out, ".section .text\n.global main\n\n");

@@ -1,5 +1,3 @@
-fix return; on void functions
-
 global variables
 
 constants (store in rodata)

@@ -1,6 +1,10 @@
 #include "cstdlib.k"
 
-void nop() {}
+int test = 5;
+
+void nop() {
+    return;
+}
 
 int read_entire_file(*char filepath) {
     *FILE fp = fopen(filepath, "r");

@@ -2,7 +2,7 @@
 
 .section .rodata
 .LS1: .asciz "r"
-.LS2: .asciz "Couldn't open the file."
+.LS2: .asciz "Couldn't open the file.\n"
 .LS3: .asciz "%p\n"
 .LS4: .asciz "%d\n"
 .LS5: .asciz "Usage: %s filename\n"
@@ -14,6 +14,7 @@ nop:
   push	rbp
   mov	rbp, rsp
   sub	rsp, 0
+  jmp	Lend_nop
 Lend_nop:
   mov	rsp, rbp
   pop	rbp

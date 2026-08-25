@@ -1,4 +1,4 @@
-struct FILE
+struct FILE // from stdio.h
 {
     int _flags;
     *char _IO_read_ptr;
@@ -28,6 +28,8 @@ struct FILE
 
     *_IO_lock_t _lock;
 };
+
+void   exit    (int status);
 
 *void  malloc  (uint64 size);
 void   free    (*void ptr);

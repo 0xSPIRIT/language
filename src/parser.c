@@ -238,17 +238,22 @@ bool is_struct(parser *p) { return expect_keyword(p, KEYWORD_STRUCT); }
 ast_node *parse_return(parser *p) {
     ast_node *Node = 0;
 
-    consume(p, TOKEN_KEYWORD);
+    consume_keyword(p, KEYWORD_RETURN);
 
-    ast_node *ValNode = parse_expression(p);
+    Node = node(p, NODE_RETURN);
 
-    if (!ValNode) {
-        parse_error(p, "Error reading return value in return statement.");
-        return Node;
+    if (peek(p)->Type == TOKEN_END_STATEMENT) {
+        Node->Return.Value = nullptr;
+    } else {
+        ast_node *ValNode = parse_expression(p);
+
+        if (!ValNode) {
+            parse_error(p, "Error reading return value in return statement.");
+            return Node;
+        }
+
+        Node->Return.Value = ValNode;
     }
-
-    Node               = node(p, NODE_RETURN);
-    Node->Return.Value = ValNode;
 
     return Node;
 }

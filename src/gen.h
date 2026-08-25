@@ -134,17 +134,36 @@ typedef struct {
 } asm_instruction;
 
 typedef enum {
-    RODATA_STRING_LIT,
-} rodata_entry_type;
+    STRING_LIT,
+    INT_LIT,
+} section_entry_type;
 
 typedef struct {
-    rodata_entry_type Type;
+    section_entry_type Type;
     string Label;
 
     union {
         string StringLit;
+        uint64_t IntegerLit;
     };
 } rodata_entry;
+
+typedef struct {
+    string Name;
+    int    Size;
+
+    section_entry_type Type;
+
+    union {
+        string   StringLit;
+        uint64_t IntegerLit;
+    };
+} data_entry;
+
+typedef struct {
+    string Name;
+    int Size;
+} bss_entry;
 
 typedef struct {
     string BreakLabel, ContinueLabel;
@@ -159,6 +178,12 @@ typedef struct {
 
     rodata_entry *RodataEntries;
     int RodataEntryCount;
+
+    data_entry *DataEntries;
+    int DataEntryCount;
+
+    bss_entry *BssEntries;
+    int BssEntryCount;
 
     size_t InstructionCount;
 

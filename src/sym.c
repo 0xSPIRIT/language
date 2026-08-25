@@ -186,10 +186,10 @@ int resolve_type_info(memory_arena *arena, scopes *Scopes, ast_node *Type, type_
 
 // param_index should be -1 if this variable is not a parameter
 symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes, ast_node *var_decl, int param_index) {
-    string FieldName = var_decl->VarDecl.Name->Ident.Name;
+    string Name = var_decl->VarDecl.Name->Ident.Name;
 
     symbol DeclSym = {
-        .Name = FieldName,
+        .Name = Name,
         .Type = SYM_VAR,
     };
 
@@ -211,6 +211,29 @@ int resolve_var_decl(memory_arena *arena, scopes *Scopes, ast_node *VarDecl, int
 
     _resolve_symbols(arena, VarDecl->VarDecl.Name, Scopes, Sym, false);
     _resolve_symbols(arena, VarDecl->VarDecl.Init, Scopes, (symbol){}, false);
+
+    symbols_scope *CurrentScope = Scopes->CurrentScope;
+    bool IsGlobalScope          = !CurrentScope->Parent;
+
+    if (IsGlobalScope) {
+        bool PutInBss = !VarDecl->VarDecl.Init;
+        PutInBss |= VarDecl->VarDecl.Init->Type == NODE_INT_LIT && VarDecl->VarDecl.Init->IntegerLit.Value == 0;
+
+        if (PutInBss) {
+            Sym.Section = SECTION_BSS;
+        } else {
+            Sym.Section = SECTION_DATA;
+        }
+    } else {
+        Sym.Section = SECTION_STACK;
+    }
+
+    /*
+    printf("We are putting %.*s\tinto %s\tsection\n",
+           (int)Sym.Name.Length,
+           Sym.Name.Data,
+           (const char *[]){"stack", "bss", "data", "reg"}[Sym.Section]);
+           */
 
     for (int i = 0; i < VarDecl->VarDecl.ChildDeclsCount; i++) {
         resolve_var_decl(arena, Scopes, VarDecl->VarDecl.ChildDecls[i], param_index);
