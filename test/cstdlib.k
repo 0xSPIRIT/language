@@ -1,5 +1,5 @@
-struct FILE // from stdio.h
-{
+// adapted from stdio.h
+struct FILE {
     int _flags;
     *char _IO_read_ptr;
     *char _IO_read_end;

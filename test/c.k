@@ -7,13 +7,22 @@ struct Vector3 {
 Vector3 test;
 
 void print_vec(*Vector3 v) {
-    printf("(%d %d %d)\n", v.x, v.y, v.z);
+    printf("The pointer is %p and the value is (%d %d %d)\n", v, v.x, v.y, v.z);
 }
 
 int main() {
     test.x = 1;
     test.y = 2;
     test.z = 3;
+
+    test.x += test.z;
+    test.x += test.y;
+
+    if (test.x < 5) {
+        printf("You're a wizard, Harry!\n");
+    } else {
+        printf("You're a fucking muggle, Harry!\n");
+    }
 
     print_vec(&test);
 

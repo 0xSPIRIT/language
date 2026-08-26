@@ -402,6 +402,12 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
             Right       = Tmp;
             UsedScratch = true;
         }
+        if (Right.Type == OPERAND_MEM && Right.Mem.Base == REG_RAX) {
+            Tmp = scratch_register(Right.Size);
+            emit_move(code, Tmp, Right);
+            Right       = Tmp;
+            UsedScratch = true;
+        }
         emit_move(code, Reg(REG_RAX, Size), Left);
         emit(code, (asm_instruction){.Op = MathOp, .Dst = Reg(REG_RAX, Size), .Src = Right});
     }
