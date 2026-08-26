@@ -31,7 +31,7 @@ char *token_name(token_type type) {
         case TOKEN_QUOTE:         return "\"";
         case TOKEN_CHAR_QUOTE:    return "'";
         case TOKEN_AMP:           return "&";
-
+        case TOKEN_SIZEOF:        return "sizeof";
         case TOKEN_EQUALS_EQUALS: return "==";
         case TOKEN_OR:            return "||";
         case TOKEN_AND:           return "&&";
@@ -41,19 +41,15 @@ char *token_name(token_type type) {
         case TOKEN_PERCENT:       return "%";
         case TOKEN_BANG:          return "!";
         case TOKEN_DOT:           return ".";
-
-        case TOKEN_INC: return "++";
-        case TOKEN_DEC: return "--";
-
-        case TOKEN_PLUS_EQ:  return "+=";
-        case TOKEN_MINUS_EQ: return "-=";
-        case TOKEN_TIMES_EQ: return "*=";
-        case TOKEN_DIV_EQ:   return "/=";
-        case TOKEN_MOD_EQ:   return "%=";
-
-        case TOKEN_ELLIPSES: return "...";
-
-        default: return "(unknown token)";
+        case TOKEN_INC:           return "++";
+        case TOKEN_DEC:           return "--";
+        case TOKEN_PLUS_EQ:       return "+=";
+        case TOKEN_MINUS_EQ:      return "-=";
+        case TOKEN_TIMES_EQ:      return "*=";
+        case TOKEN_DIV_EQ:        return "/=";
+        case TOKEN_MOD_EQ:        return "%=";
+        case TOKEN_ELLIPSES:      return "...";
+        default:                  return "(unknown token)";
     }
 }
 

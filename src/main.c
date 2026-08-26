@@ -15,7 +15,7 @@ int main(int argc, char **argv) {
     string Filepath;
 
     if (argc == 1)
-        Filepath = CSTR("../test/b.k");
+        Filepath = CSTR("../test/c.k");
     else
         Filepath = (string){argv[1], strlen(argv[1])};
 

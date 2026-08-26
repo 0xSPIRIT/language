@@ -1,11 +1,14 @@
 .intel_syntax noprefix
 
 .section .rodata
-.LS1: .asciz "r"
-.LS2: .asciz "Couldn't open the file.\n"
-.LS3: .asciz "%p\n"
-.LS4: .asciz "%d\n"
-.LS5: .asciz "Usage: %s filename\n"
+	LR0:	.asciz "r"
+	LR1:	.asciz "Couldn't open the file.\n"
+	LR2:	.asciz "%p\n"
+	LR3:	.asciz "%d\n"
+	LR4:	.asciz "Usage: %s filename\n"
+
+.section .data
+	g_test:	.long	0
 
 .section .text
 .global main
@@ -24,7 +27,7 @@ read_entire_file:
   mov	rbp, rsp
   sub	rsp, 48
   mov	QWORD PTR [rbp - 40], rdi
-  lea	rsi, [rip + .LS1]
+  lea	rsi, [rip + LR0]
   mov	rdi, QWORD PTR [rbp - 40]
   call	fopen
   mov	QWORD PTR [rbp - 8], rax
@@ -34,7 +37,7 @@ read_entire_file:
   movzx	rax, al
   test	rax, rax
   je	L0
-  lea	rdi, [rip + .LS2]
+  lea	rdi, [rip + LR1]
   xor	al, al
   call	printf
   xor	eax, eax
@@ -97,23 +100,23 @@ linked_list:
   mov	rax, QWORD PTR [rax + 4]
   mov	QWORD PTR [rax + 4], 0
   mov	rsi, QWORD PTR [rbp - 8]
-  lea	rdi, [rip + .LS3]
+  lea	rdi, [rip + LR2]
   xor	al, al
   call	printf
   mov	rax, QWORD PTR [rbp - 8]
   mov	esi, DWORD PTR [rax + 0]
-  lea	rdi, [rip + .LS4]
+  lea	rdi, [rip + LR3]
   xor	al, al
   call	printf
   mov	rax, QWORD PTR [rbp - 8]
   mov	rsi, QWORD PTR [rax + 4]
-  lea	rdi, [rip + .LS3]
+  lea	rdi, [rip + LR2]
   xor	al, al
   call	printf
   mov	rax, QWORD PTR [rbp - 8]
   mov	rax, QWORD PTR [rax + 4]
   mov	esi, DWORD PTR [rax + 0]
-  lea	rdi, [rip + .LS4]
+  lea	rdi, [rip + LR3]
   xor	al, al
   call	printf
 Lend_linked_list:
@@ -134,7 +137,7 @@ main:
   je	L1
   mov	rax, QWORD PTR [rbp - 12]
   mov	rsi, QWORD PTR [rax]
-  lea	rdi, [rip + .LS5]
+  lea	rdi, [rip + LR4]
   xor	al, al
   call	printf
   xor	eax, eax

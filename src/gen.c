@@ -36,6 +36,7 @@ void emit_error(const char *format, ...) {
     printf("\n");
 
     va_end(Args);
+    assert(false);
 }
 
 operand LabelOperand(string Label) { return (operand){.Type = OPERAND_LABEL, .Label.Name = Label}; }
@@ -156,23 +157,48 @@ string function_end_label(program_code *code) {
 }
 
 // Searches if the entry already exists, and returns that. Otherwise Returns entry label
-string push_rodata_entry(program_code *code, rodata_entry Entry) {
-    if (Entry.Type == RODATA_STRING_LIT) {
+string push_rodata_entry(program_code *code, section_entry Entry) {
+    if (Entry.Type == STRING_LIT) {
         for (int i = 0; i < code->RodataEntryCount; i++) {
-            rodata_entry *E = code->RodataEntries + i;
+            section_entry *E = code->RodataEntries + i;
 
-            if (E->Type == RODATA_STRING_LIT && string_equals(Entry.StringLit, E->StringLit)) {
-                return E->Label;
+            if (E->Type == STRING_LIT && string_equals(Entry.StringLit, E->StringLit)) {
+                return E->Name;
             }
         }
+    } else if (Entry.Type == INT_LIT) {
+        for (int i = 0; i < code->RodataEntryCount; i++) {
+            section_entry *E = code->RodataEntries + i;
+
+            if (E->Type == INT_LIT && Entry.IntegerLit == E->IntegerLit) {
+                return E->Name;
+            }
+        }
+    } else {
+        assert(false);
     }
 
-    string Name = string_make(code->GeneralArena, 8);
-    Name.Length = sprintf(Name.Data, "LS%d", ++code->RodataEntryCount);
+    // Create a new name if it hasn't already been set.
+    if (Entry.Name.Length == 0) {
+        string Name = string_make(code->GeneralArena, 16);
+        Name.Length = sprintf(Name.Data, "LR%d", code->RodataEntryCount);
+        Entry.Name  = Name;
+    }
 
-    Entry.Label = Name;
+    code->RodataEntries[code->RodataEntryCount++] = Entry;
 
-    code->RodataEntries[code->RodataEntryCount - 1] = Entry;
+    return Entry.Name;
+}
+
+void push_data_entry(program_code *code, section_entry Entry) { code->DataEntries[code->DataEntryCount++] = Entry; }
+
+string push_bss_entry(program_code *code, string Name, int SizeBytes) {
+    section_entry Entry = {};
+
+    Entry.Name = Name;
+    Entry.Size = SizeBytes;
+
+    code->BssEntries[code->BssEntryCount++] = Entry;
 
     return Name;
 }
@@ -394,9 +420,16 @@ operand emit_member_access(program_code *code, ast_node *Left, ast_node *Right) 
 
     operand Structure;
 
+    // This will be true if Left is referencing a label from .rodata, .data or .bss
+    // We need to know this because we can't apply displacements directly to it,
+    // so we must move Structure into Rax.
+    bool IsRelativeAddress = false;
+
     if (Left->Type == NODE_IDENT) {
         assert(Left->Ident.Sym);
         Structure = emit_expression(Left, code);
+
+        if (Structure.Type == OPERAND_MEM && Structure.Mem.Base == REG_RIP) IsRelativeAddress = true;
     } else if (Left->Type == NODE_BINARY_OP && Left->BinaryOp.Operation == TOKEN_DOT) {
         Structure = emit_member_access(code, Left->BinaryOp.Left, Left->BinaryOp.Right);
     } else {
@@ -411,7 +444,9 @@ operand emit_member_access(program_code *code, ast_node *Left, ast_node *Right) 
 
     assert(LeftType.StructType || (LeftType.PointingTo && LeftType.PointingTo->StructType));
 
-    if (IsPtr) {
+    bool MoveToRax = IsRelativeAddress || IsPtr;
+
+    if (MoveToRax) {
         emit_move(code, Reg(REG_RAX, 8), Structure);
     }
 
@@ -425,7 +460,7 @@ operand emit_member_access(program_code *code, ast_node *Left, ast_node *Right) 
     Result.Size          = FieldSym->TypeInfo.Size;
     Result.Mem.IsAddress = false;
 
-    if (IsPtr) {
+    if (MoveToRax) {
         Result.Mem.Base         = REG_RAX;
         Result.Mem.Displacement = ConstDisplacement(FieldSym->FieldOffset);
     } else {
@@ -1001,16 +1036,17 @@ operand emit_expression(ast_node *node, program_code *code) {
                         Result.Size = Sym->TypeInfo.Size;
                     }
 
-                    if (Sym->Section == SECTION_STACK) {
-                        Result.Mem.Base         = REG_RBP;
-                        Result.Mem.Displacement = ConstDisplacement(-Sym->StackOffset);
-                    }
+                    Result.Mem.Base         = REG_RBP;
+                    Result.Mem.Displacement = ConstDisplacement(-Sym->StackOffset);
                     break;
                 }
-                case SECTION_BSS: {
-                    break;
-                }
-                case SECTION_DATA: {
+                case SECTION_BSS:
+                case SECTION_DATA:
+                case SECTION_RODATA: {
+                    Result.Type             = OPERAND_MEM;
+                    Result.Mem.Base         = REG_RIP;
+                    Result.Mem.Displacement = LabelDisplacement(Sym->Name);
+                    Result.Mem.IsAddress    = true;
                     break;
                 }
             }
@@ -1030,9 +1066,9 @@ operand emit_expression(ast_node *node, program_code *code) {
             break;
         }
         case NODE_STRING_LIT: {
-            rodata_entry Entry;
+            section_entry Entry = {};
 
-            Entry.Type      = RODATA_STRING_LIT;
+            Entry.Type      = STRING_LIT;
             Entry.StringLit = node->StringLit.Value;
 
             Result = get_string_lit_operand(code, push_rodata_entry(code, Entry));
@@ -1149,20 +1185,18 @@ void emit_var_decl(program_code *code, ast_node *node) {
 
     ast_node *Init = node->VarDecl.Init;
 
-    if (!Init) return;
-
     ast_node *Ident = node->VarDecl.Name;
     symbol *Sym     = Ident->Ident.Sym;
 
     switch (Sym->Section) {
         case SECTION_STACK: {
+            if (!Init) return;
+
             int Offset = Sym->StackOffset;
 
             // Variable is stored at [rbp - Offset]
             operand Mem = {
-                .Type = OPERAND_MEM,
-                .Size = Sym->TypeInfo.Size,
-                .Mem  = {.Base = REG_RBP, .Index = REG_NONE, .Scale = 0, .Displacement = ConstDisplacement(-Offset)}
+                .Type = OPERAND_MEM, .Size = Sym->TypeInfo.Size, .Mem = {.Base = REG_RBP, .Displacement = ConstDisplacement(-Offset)}
             };
 
             operand Value = emit_expression(Init, code);
@@ -1170,10 +1204,36 @@ void emit_var_decl(program_code *code, ast_node *node) {
             emit_move(code, Mem, Value);
             break;
         }
+
+        // .bss and .data are used only for globals
         case SECTION_BSS: {
+            push_bss_entry(code, Ident->Ident.Name, Sym->TypeInfo.Size);
             break;
         }
-        case SECTION_DATA: {
+        case SECTION_DATA:
+        case SECTION_RODATA: {  // .rodata is used for constants
+            section_entry Entry = {};
+
+            type_info *TypeInfo = &Sym->TypeInfo;
+
+            // Check for string literal
+            if (Init->Type == NODE_STRING_LIT) {
+                Entry.Type      = STRING_LIT;
+                Entry.StringLit = Init->StringLit.Value;
+            } else if (TypeInfo->Type == TYPE_STRUCT) {
+                Entry.Type = STRUCT;
+            } else {
+                Entry.Type       = INT_LIT;
+                Entry.IntegerLit = Init->IntegerLit.Value;
+            }
+
+            Entry.Size = TypeInfo->Size;
+            Entry.Name = Ident->Ident.Name;
+
+            if (Sym->Section == SECTION_DATA)
+                push_data_entry(code, Entry);
+            else
+                push_rodata_entry(code, Entry);
             break;
         }
         case SECTION_REG: {
@@ -1188,6 +1248,10 @@ void emit_statement(ast_node *node, program_code *code) {
 
     switch (node->Type) {
         case NODE_PROGRAM: {
+            for (int i = 0; i < node->Program.GlobalDeclCount; i++) {
+                emit_statement(node->Program.GlobalDecls[i], code);
+            }
+
             for (int i = 0; i < node->Program.FunctionCount; i++) {
                 emit_statement(node->Program.Functions[i], code);
             }
@@ -1256,6 +1320,11 @@ void emit_statement(ast_node *node, program_code *code) {
 
             switch (node->BinaryOp.Operation) {
                 case TOKEN_EQUALS: {
+                    if (Left->Type == NODE_IDENT && Left->Ident.Sym->TypeInfo.IsConst) {
+                        emit_error("Cannot set const type.");
+                        break;
+                    }
+
                     operand Src = emit_expression(Right, code);
 
                     bool UsedScratch = false;
@@ -1479,8 +1548,12 @@ char *size_directive(int size) {
 }
 
 void print_mem(FILE *out, operand op) {
-    char *SizeDirective = size_directive(op.Size);
-    fprintf(out, "%s%s[%s", SizeDirective, SizeDirective[0] ? " " : "", register_name(op.Mem.Base, 8));
+    if (op.Mem.Base) {
+        char *SizeDirective = size_directive(op.Size);
+        fprintf(out, "%s%s[%s", SizeDirective, SizeDirective[0] ? " " : "", register_name(op.Mem.Base, 8));
+    } else {
+        fprintf(out, "[");
+    }
 
     int RegSize = op.Size > 0 ? op.Size : 8;
     if (op.Mem.Index) fprintf(out, " + %s*%d", register_name(op.Mem.Index, RegSize), op.Mem.Scale);
@@ -1499,7 +1572,11 @@ void print_mem(FILE *out, operand op) {
 
         fprintf(out, "%d]", Off);
     } else if (Disp.Type == DISPLACEMENT_LABEL) {
-        fprintf(out, " + .%.*s]", (int)Disp.Label.Length, Disp.Label.Data);
+        if (op.Mem.Base || op.Mem.Index) {
+            fprintf(out, " + ");
+        }
+
+        fprintf(out, "%.*s]", (int)Disp.Label.Length, Disp.Label.Data);
     } else {
         fprintf(out, "]");
     }
@@ -1651,7 +1728,9 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
     Code.InstructionArena = make_arena();
     Code.GeneralArena     = arena;
 
-    Code.RodataEntries = arena_push(arena, MAX_STRING_LIT * sizeof(rodata_entry));
+    Code.DataEntries   = arena_push(arena, MAX_SECTION_ENTRIES * sizeof(section_entry));
+    Code.RodataEntries = arena_push(arena, MAX_SECTION_ENTRIES * sizeof(section_entry));
+    Code.BssEntries    = arena_push(arena, MAX_SECTION_ENTRIES * sizeof(section_entry));
     Code.Loops         = arena_push(arena, MAX_DEPTH * sizeof(loop));
 
     emit_statement(ast, &Code);
@@ -1664,15 +1743,32 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
         fprintf(out, ".section .rodata\n");
 
         for (int i = 0; i < Code.RodataEntryCount; i++) {
-            rodata_entry *Entry = Code.RodataEntries + i;
+            section_entry *Entry = Code.RodataEntries + i;
 
             if (Entry->Type == STRING_LIT) {
                 fprintf(out,
-                        ".%.*s: .asciz \"%.*s\"\n",
-                        (int)Entry->Label.Length,
-                        Entry->Label.Data,
+                        "\t%.*s:\t.asciz \"%.*s\"\n",
+                        (int)Entry->Name.Length,
+                        Entry->Name.Data,
                         (int)Entry->StringLit.Length,
                         Entry->StringLit.Data);
+            } else if (Entry->Type == INT_LIT) {
+                fprintf(out, "\t%.*s:\t", (int)Entry->Name.Length, Entry->Name.Data);
+
+                const char *Size;
+
+                switch (Entry->Size) {
+                    case 1:  Size = ".byte"; break;
+                    case 2:  Size = ".short"; break;
+                    case 4:  Size = ".long"; break;
+                    case 8:  Size = ".quad"; break;
+                    default: assert(false);
+                }
+
+                fprintf(out, "%s\t", Size);
+                fprintf(out, "%zu\n", Entry->IntegerLit);
+            } else if (Entry->Type == STRUCT) {
+                assert(false);
             }
         }
 
@@ -1683,24 +1779,48 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
         fprintf(out, ".section .data\n");
 
         for (int i = 0; i < Code.DataEntryCount; i++) {
-            data_entry *Entry = Code.DataEntries + i;
+            section_entry *Entry = Code.DataEntries + i;
+
+            fprintf(out, "\t%.*s:\t", (int)Entry->Name.Length, Entry->Name.Data);
+
+            const char *Size;
+
+            switch (Entry->Size) {
+                case 1:  Size = ".byte"; break;
+                case 2:  Size = ".short"; break;
+                case 4:  Size = ".long"; break;
+                case 8:  Size = ".quad"; break;
+                default: assert(false);
+            }
+
+            fprintf(out, "%s\t", Size);
 
             if (Entry->Type == STRING_LIT) {
+                fprintf(out, "\"%.*s\", 0", (int)Entry->StringLit.Length, Entry->StringLit.Data);
             } else if (Entry->Type == INT_LIT) {
+                fprintf(out, "%zu", Entry->IntegerLit);
+            } else if (Entry->Type == STRUCT) {
+                assert(false);  // we dont't allow initializing a struct
             }
+
+            fprintf(out, "\n");
         }
+
+        fprintf(out, "\n");
     }
 
-    if (Code.DataEntryCount > 0) {
+    if (Code.BssEntryCount > 0) {
         fprintf(out, ".section .bss\n");
 
         for (int i = 0; i < Code.BssEntryCount; i++) {
-            bss_entry *Entry = Code.BssEntries + i;
+            section_entry *Entry = Code.BssEntries + i;
 
-            if (Entry->Type == STRING_LIT) {
-            } else if (Entry->Type == INT_LIT) {
-            }
+            assert(Entry->Name.Length > 0);
+
+            fprintf(out, "\t%.*s:\t.space %d\n", (int)Entry->Name.Length, Entry->Name.Data, Entry->Size);
         }
+
+        fprintf(out, "\n");
     }
 
     fprintf(out, ".section .text\n.global main\n\n");

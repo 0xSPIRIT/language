@@ -18,6 +18,7 @@ typedef enum {
     SECTION_STACK,
     SECTION_BSS,
     SECTION_DATA,
+    SECTION_RODATA,
     SECTION_REG,
 } section;
 
@@ -36,7 +37,9 @@ typedef struct {
 typedef struct type_info {
     int Size;
     int IndirectionDepth;
+    type Type;
     bool IsArray;
+    bool IsConst;
     struct symbol *StructType;
     struct type_info *PointingTo;
     string UndeclaredStructName;  // Forward declarations.

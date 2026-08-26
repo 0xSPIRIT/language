@@ -153,6 +153,9 @@ int resolve_type_info(memory_arena *arena, scopes *Scopes, ast_node *Type, type_
 
     symbols_scope *CurrentScope = Scopes->CurrentScope;
 
+    TypeInfo->Type    = DataType;
+    TypeInfo->IsConst = Type->DataType.IsConst;
+
     if (DataType == TYPE_PTR || DataType == TYPE_ARRAY) {
         type_info *NextTypeInfo = arena_push(arena, sizeof(type_info));
 
@@ -184,6 +187,32 @@ int resolve_type_info(memory_arena *arena, scopes *Scopes, ast_node *Type, type_
     return TypeInfo->IndirectionDepth;
 }
 
+void resolve_section(symbol *Sym, ast_node *VarDecl, scopes *Scopes) {
+    symbols_scope *CurrentScope = Scopes->CurrentScope;
+    bool IsGlobalScope          = !CurrentScope->Parent;
+
+    if (IsGlobalScope) {
+        if (Sym->TypeInfo.IsConst) {
+            Sym->Section = SECTION_RODATA;
+        } else {
+            bool PutInBss = !VarDecl->VarDecl.Init;
+
+            if (!PutInBss) PutInBss |= VarDecl->VarDecl.Init->Type == NODE_INT_LIT && VarDecl->VarDecl.Init->IntegerLit.Value == 0;
+
+            if (PutInBss) {
+                Sym->Section = SECTION_BSS;
+            } else {
+                Sym->Section = SECTION_DATA;
+            }
+        }
+    } else {
+        if (Sym->TypeInfo.IsConst) {
+            // Futrue: put it into rodata?
+        }
+        Sym->Section = SECTION_STACK;
+    }
+}
+
 // param_index should be -1 if this variable is not a parameter
 symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes, ast_node *var_decl, int param_index) {
     string Name = var_decl->VarDecl.Name->Ident.Name;
@@ -199,6 +228,7 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes
     }
 
     resolve_type_info(arena, Scopes, var_decl->VarDecl.Type, &DeclSym.TypeInfo);
+    resolve_section(&DeclSym, var_decl, Scopes);
 
     return DeclSym;
 }
@@ -211,22 +241,6 @@ int resolve_var_decl(memory_arena *arena, scopes *Scopes, ast_node *VarDecl, int
 
     _resolve_symbols(arena, VarDecl->VarDecl.Name, Scopes, Sym, false);
     _resolve_symbols(arena, VarDecl->VarDecl.Init, Scopes, (symbol){}, false);
-
-    symbols_scope *CurrentScope = Scopes->CurrentScope;
-    bool IsGlobalScope          = !CurrentScope->Parent;
-
-    if (IsGlobalScope) {
-        bool PutInBss = !VarDecl->VarDecl.Init;
-        PutInBss |= VarDecl->VarDecl.Init->Type == NODE_INT_LIT && VarDecl->VarDecl.Init->IntegerLit.Value == 0;
-
-        if (PutInBss) {
-            Sym.Section = SECTION_BSS;
-        } else {
-            Sym.Section = SECTION_DATA;
-        }
-    } else {
-        Sym.Section = SECTION_STACK;
-    }
 
     /*
     printf("We are putting %.*s\tinto %s\tsection\n",
@@ -279,8 +293,10 @@ int resolve_stack_offsets(ast_node *Stmt, int Offset, int *OutBlockSize) {
             ast_node *Identifier = Stmt->VarDecl.Name;
             symbol *Sym          = Identifier->Ident.Sym;
 
-            Offset += Sym->TypeInfo.Size;
-            Sym->StackOffset = Offset;
+            if (Sym->Section == SECTION_STACK) {
+                Offset += Sym->TypeInfo.Size;
+                Sym->StackOffset = Offset;
+            }
 
             for (int i = 0; i < Stmt->VarDecl.ChildDeclsCount; i++) {
                 Offset = resolve_stack_offsets(Stmt->VarDecl.ChildDecls[i], Offset, OutBlockSize);

@@ -52,7 +52,7 @@ typedef struct ast_node {
             struct ast_node *Name;  // NODE_IDENT
             struct ast_node *ReturnType;
             struct ast_node **Params;  // array of NODE_VAR_DECL
-            struct ast_node *Body;  // NODE_BLOCK
+            struct ast_node *Body;     // NODE_BLOCK
             int ParamCount;
             bool IsVarArg;
         } FuncDef;
@@ -77,7 +77,7 @@ typedef struct ast_node {
             type Type;
             struct ast_node *Name;  // NODE_IDENT, nullable if builtin type
             int ArraySize;
-
+            bool IsConst;
             struct ast_node *PointingTo;  // An ast_node *DataType
         } DataType;
 

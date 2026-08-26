@@ -31,8 +31,6 @@ typedef enum {
 
     TOKEN_SIZEOF,
 
-    TOKEN_INCLUDE,
-
     TOKEN_AMP           = '&',
     TOKEN_DOT           = '.',
     TOKEN_PERCENT       = '%',
@@ -63,6 +61,7 @@ typedef enum {
     KEYWORD_FOR,
     KEYWORD_WHILE,
     KEYWORD_SWITCH,
+    KEYWORD_CONST,
     KEYWORD_STRUCT,
     KEYWORD_RETURN,
     KEYWORD_BREAK,
@@ -76,6 +75,7 @@ const string Keywords[] = {
     CSTR("for"),
     CSTR("while"),
     CSTR("switch"),
+    CSTR("const"),
     CSTR("struct"),
     CSTR("return"),
     CSTR("break"),

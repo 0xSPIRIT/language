@@ -7,7 +7,7 @@
 
 #define MAX_FUNCTIONS 1024
 #define MAX_VARS 16384
-#define MAX_STRING_LIT 16384
+#define MAX_SECTION_ENTRIES 16384
 #define MAX_DEPTH 16384
 
 typedef enum {
@@ -136,34 +136,20 @@ typedef struct {
 typedef enum {
     STRING_LIT,
     INT_LIT,
+    STRUCT,
 } section_entry_type;
 
 typedef struct {
     section_entry_type Type;
-    string Label;
+
+    string Name;
+    int Size;
 
     union {
         string StringLit;
         uint64_t IntegerLit;
     };
-} rodata_entry;
-
-typedef struct {
-    string Name;
-    int    Size;
-
-    section_entry_type Type;
-
-    union {
-        string   StringLit;
-        uint64_t IntegerLit;
-    };
-} data_entry;
-
-typedef struct {
-    string Name;
-    int Size;
-} bss_entry;
+} section_entry;
 
 typedef struct {
     string BreakLabel, ContinueLabel;
@@ -176,13 +162,13 @@ typedef struct {
     string CurrentFunction;
     int CurrentFunctionReturnSize;
 
-    rodata_entry *RodataEntries;
+    section_entry *RodataEntries;
     int RodataEntryCount;
 
-    data_entry *DataEntries;
+    section_entry *DataEntries;
     int DataEntryCount;
 
-    bss_entry *BssEntries;
+    section_entry *BssEntries;
     int BssEntryCount;
 
     size_t InstructionCount;

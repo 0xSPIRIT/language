@@ -29,6 +29,10 @@ struct FILE // from stdio.h
     *_IO_lock_t _lock;
 };
 
+const int SEEK_SET = 0;
+const int SEEK_CUR = 1;
+const int SEEK_END = 2;
+
 void   exit    (int status);
 
 *void  malloc  (uint64 size);

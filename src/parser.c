@@ -319,9 +319,16 @@ ast_node *_parse_type(parser *p, bool peeking) {
     ast_node *BaseNode = 0;
     ast_node *Prev     = 0;
 
+    bool IsConst = false;
+
     if (peek(p)->Type == TOKEN_ELLIPSES) {
         ast_node *Node = node(p, NODE_VARARG);
         return Node;
+    }
+
+    if (expect_keyword(p, KEYWORD_CONST)) {
+        IsConst = true;
+        advance(p);
     }
 
     while (peek(p)->Type == TOKEN_OPEN_SQUARE || peek(p)->Type == TOKEN_STAR) {
@@ -366,7 +373,13 @@ ast_node *_parse_type(parser *p, bool peeking) {
         ast_node *EndNode      = node(p, NODE_TYPE);
         EndNode->DataType.Name = identifier(p, advance(p)->String);
         EndNode->DataType.Type = get_data_type(EndNode->DataType.Name->Ident.Name);
+
         if (Prev) Prev->DataType.PointingTo = EndNode;
+
+        if (BaseNode)
+            BaseNode->DataType.IsConst = IsConst;
+        else
+            EndNode->DataType.IsConst = IsConst;
 
         return BaseNode ? BaseNode : EndNode;
     } else {
@@ -382,9 +395,17 @@ token *advance_type(parser *p) {
     return peek(p);
 }
 
-// A type in this language has the format <indirection> <type name> <variable name>;
+// A type in this language has the format <const?> <indirection> <type name> <variable name>;
 bool is_type(parser *p) {
     int StoredPos = p->i;
+
+    if (peek(p)->Type == TOKEN_KEYWORD) {
+        if (peek(p)->Keyword == KEYWORD_CONST) {
+            advance(p);
+        } else {
+            return false;
+        }
+    }
 
     // eat all the indirection symbols
     while (expect(p, TOKEN_STAR) || expect(p, TOKEN_OPEN_SQUARE)) {
