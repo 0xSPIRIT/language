@@ -401,8 +401,7 @@ operand emit_math(program_code *code, token_type Op, operand Left, operand Right
             emit_move(code, Tmp, Right);
             Right       = Tmp;
             UsedScratch = true;
-        }
-        if (Right.Type == OPERAND_MEM && Right.Mem.Base == REG_RAX) {
+        } else if (Right.Type == OPERAND_MEM && Right.Mem.Base == REG_RAX) {
             Tmp = scratch_register(Right.Size);
             emit_move(code, Tmp, Right);
             Right       = Tmp;
@@ -435,7 +434,10 @@ operand emit_member_access(program_code *code, ast_node *Left, ast_node *Right) 
         assert(Left->Ident.Sym);
         Structure = emit_expression(Left, code);
 
-        if (Structure.Type == OPERAND_MEM && Structure.Mem.Base == REG_RIP) IsRelativeAddress = true;
+        if (Structure.Type == OPERAND_MEM && Structure.Mem.Base == REG_RIP) {
+            Structure.Mem.IsAddress = true;  // do LEA into rax instead of mov
+            IsRelativeAddress       = true;
+        }
     } else if (Left->Type == NODE_BINARY_OP && Left->BinaryOp.Operation == TOKEN_DOT) {
         Structure = emit_member_access(code, Left->BinaryOp.Left, Left->BinaryOp.Right);
     } else {
@@ -717,8 +719,8 @@ operand emit_sizeof(program_code *code, ast_node *Operand) {
 bool is_pointer_math_op(program_code *code, ast_node *Node) {
     if (Node->Type != NODE_BINARY_OP) return false;
 
-    type_info A = get_type_info_from_operand(Node->BinaryOp.Left, true);
-    type_info B = get_type_info_from_operand(Node->BinaryOp.Right, true);
+    type_info A = get_type_info_from_operand(Node->BinaryOp.Left, false);
+    type_info B = get_type_info_from_operand(Node->BinaryOp.Right, false);
 
     if (A.IndirectionDepth > 0 && B.IndirectionDepth > 0) return false;
     if (A.IndirectionDepth > 0 || B.IndirectionDepth > 0) return true;
@@ -1050,9 +1052,10 @@ operand emit_expression(ast_node *node, program_code *code) {
                 case SECTION_DATA:
                 case SECTION_RODATA: {
                     Result.Type             = OPERAND_MEM;
+                    Result.Size             = Sym->TypeInfo.Size;
                     Result.Mem.Base         = REG_RIP;
                     Result.Mem.Displacement = LabelDisplacement(Sym->Name);
-                    Result.Mem.IsAddress    = true;
+                    Result.Mem.IsAddress    = false;
                     break;
                 }
             }

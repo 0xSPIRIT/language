@@ -15,7 +15,7 @@ int main(int argc, char **argv) {
     string Filepath;
 
     if (argc == 1)
-        Filepath = CSTR("../test/c.k");
+        Filepath = CSTR("programs/pointer.k");
     else
         Filepath = (string){argv[1], strlen(argv[1])};
 
@@ -32,6 +32,8 @@ int main(int argc, char **argv) {
 
         printf("Resolving symbols...\n");
         resolve_symbols(Tree);
+
+        print_tree(Tree);
 
         FILE *Out;
 

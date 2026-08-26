@@ -1,0 +1,22 @@
+#include "cstdlib.k"
+
+int modify_value(*int v) {
+    *v = *v + 1;
+}
+
+int main(int argc, **char argv) {
+    *int ptr = malloc(sizeof(int));
+
+    *ptr = 67;
+
+    printf("ptr = %p\n",   ptr);
+    printf("*ptr = %d\n", *ptr);
+
+    modify_value(ptr);
+
+    printf("*ptr = %d\n", *ptr);
+
+    free(ptr);
+
+    return 0;
+}
