@@ -242,13 +242,6 @@ int resolve_var_decl(memory_arena *arena, scopes *Scopes, ast_node *VarDecl, int
     _resolve_symbols(arena, VarDecl->VarDecl.Name, Scopes, Sym, false);
     _resolve_symbols(arena, VarDecl->VarDecl.Init, Scopes, (symbol){}, false);
 
-    /*
-    printf("We are putting %.*s\tinto %s\tsection\n",
-           (int)Sym.Name.Length,
-           Sym.Name.Data,
-           (const char *[]){"stack", "bss", "data", "reg"}[Sym.Section]);
-           */
-
     for (int i = 0; i < VarDecl->VarDecl.ChildDeclsCount; i++) {
         resolve_var_decl(arena, Scopes, VarDecl->VarDecl.ChildDecls[i], param_index);
         if (param_index != -1) param_index++;
@@ -395,7 +388,7 @@ symbol *resolve_struct_symbol_from_expr(memory_arena *arena, ast_node *node, sco
                         TypeInfo->StructType = StructRef;
 
                         if (!StructRef) {
-                            Error("Couldn't find structure %.*s\n", (int)StructName.Length, StructName.Data);
+                            Error("Couldn't find structure %.*s\n", FmtStr(StructName));
                         }
                     }
 

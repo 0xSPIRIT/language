@@ -1,0 +1,39 @@
+#include "cstdlib.tulip"
+
+const int SIZE = 10;
+
+struct Vec3 {
+    int x, y, z;
+};
+
+struct Entry {
+    char a;
+    Vec3 v;
+};
+
+void print_entry(*Entry e) {
+    printf("[Entry @ %p] %c (%d, %d, %d)\n", e, e.a, e.v.x, e.v.y, e.v.z);
+}
+
+int main() {
+    [10]Entry a;
+
+    printf("sizeof(Entry) is %zu bytes\n", sizeof(Entry));
+
+    const int count = sizeof(a) / sizeof(a[0]);
+
+    for (int i = 0; i < count; i++) {
+        *Entry e = &a[i];
+
+        e.a = 'T';
+
+        e.v.x = i;
+        e.v.y = 5;
+        e.v.z = 6;
+    }
+
+    for (int i = 0; i < count; i++)
+        print_entry(&a[i]);
+
+    return 0;
+}

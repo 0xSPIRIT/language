@@ -168,7 +168,7 @@ token_list tokenize(memory_arena *TokenArena, memory_arena *GeneralArena, string
                     // tokens are pushed to the same arena, so we are good.
                     tokenize(TokenArena, GeneralArena, CodeForFile, (string){IncludedFilepath, Length});
                 } else {
-                    printf("Error: couldn't read file %.*s\n", (int)IncludedFilename.Length, IncludedFilename.Data);
+                    printf("Error: couldn't read file %.*s\n", FmtStr(IncludedFilename));
                 }
             }
 

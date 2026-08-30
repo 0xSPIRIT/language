@@ -36,6 +36,7 @@ const int SEEK_END = 2;
 void   exit    (int status);
 
 *void  malloc  (uint64 size);
+*void  calloc  (uint64 n, uint64 size);
 void   free    (*void ptr);
 
 int    puts    (*char string);
@@ -53,6 +54,7 @@ int    fseek   (*FILE stream, long off, int whence);
 long   ftell   (*FILE stream);
 void   rewind  (*FILE stream);
 
+*void  memset  (*void buf, int byte, uint64 size);
 *void  memcpy  (*void dest, *void src, uint64 n);
 *char  strcpy  (*char dest, *char src);
 uint64 strlen  (*char string);

@@ -1,0 +1,55 @@
+#include "cstdlib.tulip"
+
+struct List_Node {
+    *void data;
+    *List_Node next, prev;
+};
+
+struct Linked_List {
+    *List_Node head, tail;
+};
+
+*List_Node list_node(*void data) {
+    *List_Node node = calloc(1, sizeof(List_Node));
+    node.data = data;
+    return node;
+}
+
+int add_node(*Linked_List list, *void data) {
+    *List_Node new_node = list_node(data);
+
+    if (!list.head) { // Empty list
+        list.head = new_node;
+    } else { // Add to end of current list
+        list.tail.next = new_node;
+        new_node.prev = list.tail;
+    }
+
+    list.tail = new_node;
+}
+
+void print_list(*Linked_List list) {
+    for (*List_Node node = list.head; node; node = node.next) {
+        printf("%zu", node.data);
+        if (node.next) printf(", ");
+    }
+
+    printf("\n");
+}
+
+int main() {
+    Linked_List list;
+    memset(&list, 0, sizeof(Linked_List));
+
+    // Since we only have a dream of a type system in the language,
+    // we simply copy the 64-bit integer representation of the integers
+    // into the *void, which is just a 64-bit memory location to tulip.
+
+    add_node(&list, 1);
+    add_node(&list, 2);
+    add_node(&list, 3);
+
+    print_list(&list);
+
+    return 0;
+}

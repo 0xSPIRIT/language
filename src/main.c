@@ -20,26 +20,18 @@ int main(int argc, char **argv) {
     }
 
     string Filepath = ArgResult.Filepath;
-
     string Filename = strip_file_extension(get_filename_from_path(Filepath));
-
-    string Code = read_entire_file(&Arena, Filepath.Data);
+    string Code     = read_entire_file(&Arena, Filepath.Data);
 
     memory_arena TokenArena = make_arena();
     token_list Tokens       = tokenize(&TokenArena, &Arena, Code, Filepath);
 
-    if (!Tokens.Tokens) {
-        printf("Memory error!\n");
-        return 1;
-    }
+    AssertError(Tokens.Tokens, "Memory error");
 
     printf("Parsing...\n");
     ast_node *Tree = parse(&Arena, Tokens);
 
-    if (!Tree) {
-        printf("Memory error!");
-        return 1;
-    }
+    AssertError(Tree, "Memory error");
 
     printf("Resolving symbols...\n");
     resolve_symbols(Tree);
@@ -52,7 +44,7 @@ int main(int argc, char **argv) {
 
     {
         char AsmFilename[2048];
-        sprintf(AsmFilename, "%.*s.s", (int)Filename.Length, Filename.Data);
+        sprintf(AsmFilename, "%.*s.s", FmtStr(Filename));
         Out = fopen(AsmFilename, "w");
     }
 
@@ -61,36 +53,32 @@ int main(int argc, char **argv) {
 
     fclose(Out);
 
-    int result;
+    int err;
 
     printf("Assembling...\n");
     {
         char Cmd[2048];
-        sprintf(Cmd, "as --gdwarf-5 -o %.*s.o %.*s.s", (int)Filename.Length, Filename.Data, (int)Filename.Length, Filename.Data);
-        result = system(Cmd);
+        sprintf(Cmd, "as --gdwarf-5 -o %.*s.o %.*s.s", FmtStr(Filename), FmtStr(Filename));
+        err = system(Cmd);
     }
 
-    if (!result) {
-        printf("Assembler successful.\n");
+    AssertError(!err, "Assembler failed, code %d!\n", err);
 
-        printf("Linking...\n");
-        {
-            char Cmd[2048];
-            sprintf(Cmd, "gcc -o %.*s %.*s.o\n", (int)Filename.Length, Filename.Data, (int)Filename.Length, Filename.Data);
-            result = system(Cmd);
-        }
+    printf("Assembler successful.\n");
 
-        if (!result) {
-            printf("Compilation completed. Output: ./%.*s\n", (int)Filename.Length, Filename.Data);
-        } else {
-            printf("Compilation failed.\n");
-        }
-    } else {
-        printf("Assembler failed!\n");
+    printf("Linking...\n");
+    {
+        char Cmd[2048];
+        sprintf(Cmd, "gcc -o %.*s %.*s.o\n", FmtStr(Filename), FmtStr(Filename));
+        err = system(Cmd);
     }
+
+    AssertError(!err, "Compilation failed, code %d!\n", err);
+
+    printf("Compilation completed. Output: ./%.*s\n", FmtStr(Filename));
 
     free_program_code(&Program);
-
     free_arena(&Arena);
+
     return 0;
 }

@@ -20,25 +20,25 @@ void string_print_to(FILE *out, string s) { fprintf(out, "%.*s", (int)s.Length, 
 
 void string_print_b(string s) {
     printf(ANSI_FG_BLUE);
-    printf("%.*s", (int)s.Length, s.Data);
+    printf("%.*s", FmtStr(s));
     printf(ANSI_RESET);
 }
 
 void string_print_b2(string s) {
     printf(ANSI_FG_YELLOW);
-    printf("%.*s", (int)s.Length, s.Data);
+    printf("%.*s", FmtStr(s));
     printf(ANSI_RESET);
 }
 
 void string_print_b3(string s) {
     printf(ANSI_FG_GREEN);
-    printf("%.*s", (int)s.Length, s.Data);
+    printf("%.*s", FmtStr(s));
     printf(ANSI_RESET);
 }
 
 void string_print_b4(string s) {
     printf(ANSI_FG_MAGENTA);
-    printf("%.*s", (int)s.Length, s.Data);
+    printf("%.*s", FmtStr(s));
     printf(ANSI_RESET);
 }
 

@@ -1,0 +1,60 @@
+// Memory arena allocator
+
+#include "cstdlib.tulip"
+
+struct Arena {
+    *char buffer;
+    uint64 size, capacity;
+};
+
+void make_arena(*Arena arena) {
+    arena.capacity = 16384; // 16K
+    arena.size     = 0;
+    arena.buffer   = malloc(arena.capacity);
+
+    if !arena.buffer {
+        printf("malloc() error\n");
+        exit(1);
+    }
+}
+
+*void arena_push(*Arena arena, uint64 size) {
+    *void result = 0;
+
+    if arena.size + size > arena.capacity {
+        printf("Maximum size reached for arena.\n");
+        return result;
+    }
+
+    result = arena.buffer + arena.size;
+    arena.size += size;
+
+    return result;
+}
+
+struct Item {
+    int x, y;
+};
+
+void print_item(*Item item) {
+    printf("%d, %d\n", item.x, item.y);
+}
+
+int main() {
+    Arena arena;
+    make_arena(&arena);
+
+    *Item item = arena_push(&arena, sizeof(Item));
+
+    int a;
+
+    printf("Enter an integer: ");
+    scanf("%d", &a);
+
+    if item && a > 0 {
+        item.x = 5;
+        item.y = 10;
+    }
+
+    print_item(item);
+}
