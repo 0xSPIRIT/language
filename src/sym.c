@@ -35,7 +35,7 @@ int resolve_struct_size(ast_node *Node) {
         int FieldSize = resolve_type_size(Node->Struct.Fields[i]->VarDecl.Type);
 
         if (FieldSize == -1) {
-            parse_error(0, "Couldn't resolve type %s\n", Node->Struct.Fields[i]->VarDecl.Name);
+            Error("Couldn't resolve type %.*s\n", FmtStr(Node->Struct.Fields[i]->VarDecl.Name->Ident.Name));
         }
 
         Size += FieldSize;
@@ -129,7 +129,7 @@ symbol *resolve_struct_symbol(ast_node *StructType, symbols_scope *CurrentScope)
             StructType->DataType.Name->Ident.Sym = Sym;
             return Sym;
         } else {
-            parse_error(0, "The struct type couldn't be resolved because there was another symbol with the same name.");
+            Error("The struct type couldn't be resolved because there was another symbol with the same name.");
         }
     }
 
@@ -337,9 +337,9 @@ int resolve_stack_offsets(ast_node *Stmt, int Offset, int *OutBlockSize) {
 //     will return the symbol for the type of Enemy.
 // eg. (entity + 1) will return symbol for type entity
 // eg. *(entity + 1) will return symbol for type entity
-symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
+symbol *resolve_struct_symbol_from_expr(memory_arena *arena, ast_node *node, scopes *Scopes) {
     if (node->Type == NODE_IDENT) {
-        symbol *NodeSym   = search_for_symbol(node->Ident.Name, Scopes);
+        symbol *NodeSym   = search_for_symbol(node->Ident.Name, Scopes->CurrentScope);
         symbol *StructRef = NodeSym->TypeInfo.StructType;
 
         if (!StructRef && NodeSym->TypeInfo.PointingTo) {
@@ -350,8 +350,8 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
         return StructRef;
     } else if (node->Type == NODE_BINARY_OP) {
         if (node->BinaryOp.Operation == TOKEN_PLUS || node->BinaryOp.Operation == TOKEN_MINUS) {
-            symbol *Left  = resolve_struct_symbol_from_expr(node->BinaryOp.Left, Scopes);
-            symbol *Right = resolve_struct_symbol_from_expr(node->BinaryOp.Right, Scopes);
+            symbol *Left  = resolve_struct_symbol_from_expr(arena, node->BinaryOp.Left, Scopes);
+            symbol *Right = resolve_struct_symbol_from_expr(arena, node->BinaryOp.Right, Scopes);
 
             if (Left) {
                 return Left;
@@ -360,13 +360,17 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
             } else {
                 return NULL;
             }
+        } else if (node->BinaryOp.Operation == TOKEN_OPEN_SQUARE) {
+            symbol *StructRef = resolve_struct_symbol_from_expr(arena, node->BinaryOp.Left, Scopes);
+            _resolve_symbols(arena, node->BinaryOp.Right, Scopes, (symbol){}, false);
+            return StructRef;
         } else if (node->BinaryOp.Operation != TOKEN_DOT) {
-            parse_error(0, "Trying to do a binary operation that resolves to a structure? What are you doing man?!");
+            Error("Trying to do a binary operation that resolves to a structure? What are you doing man?!");
         } else {
-            symbol *LeftStruct = resolve_struct_symbol_from_expr(node->BinaryOp.Left, Scopes);
+            symbol *LeftStruct = resolve_struct_symbol_from_expr(arena, node->BinaryOp.Left, Scopes);
 
             if (node->BinaryOp.Right->Type != NODE_IDENT) {
-                parse_error(0, "Trying to access a struct with a token that isn't an identifier.");
+                Error("Trying to access a struct with a token that isn't an identifier.");
             } else {
                 string FieldName = node->BinaryOp.Right->Ident.Name;
                 symbol *FieldSym = search_struct_for_field(LeftStruct, FieldName);
@@ -374,7 +378,7 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
                 node->BinaryOp.Right->Ident.Sym = FieldSym;
 
                 if (!FieldSym) {
-                    // parse_error(0, "Couldn't find field in struct.");
+                    // Error("Couldn't find field in struct.");
                 } else {
                     type_info *TypeInfo = &FieldSym->TypeInfo;
 
@@ -386,12 +390,12 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
                     if (!StructRef && TypeInfo->UndeclaredStructName.Length > 0) {
                         string StructName = TypeInfo->UndeclaredStructName;
 
-                        StructRef = search_for_symbol(StructName, Scopes);
+                        StructRef = search_for_symbol(StructName, Scopes->CurrentScope);
 
                         TypeInfo->StructType = StructRef;
 
                         if (!StructRef) {
-                            parse_error(0, "Couldn't find structure %.*s\n", (int)StructName.Length, StructName.Data);
+                            Error("Couldn't find structure %.*s\n", (int)StructName.Length, StructName.Data);
                         }
                     }
 
@@ -402,7 +406,7 @@ symbol *resolve_struct_symbol_from_expr(ast_node *node, symbols_scope *Scopes) {
     } else if (node->Type == NODE_UNARY_OP) {
         // Dereference operator
         if (node->UnaryOp.Operation == TOKEN_STAR) {
-            return resolve_struct_symbol_from_expr(node->UnaryOp.Operand, Scopes);
+            return resolve_struct_symbol_from_expr(arena, node->UnaryOp.Operand, Scopes);
         }
     }
 
@@ -439,7 +443,7 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbo
             symbol *Existing = search_for_symbol(Name, CurrentScope);
 
             if (must_exist && !Existing) {
-                parse_error(0, "Symbol should exist!");
+                Error("Symbol should exist!");
                 break;
             }
 
@@ -551,7 +555,7 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbo
             symbol B = {.Type = (node->BinaryOp.Operation == TOKEN_DOT) ? SYM_FIELD : SYM_VAR};
 
             if (B.Type == SYM_FIELD) {
-                resolve_struct_symbol_from_expr(node, Scopes->CurrentScope);
+                resolve_struct_symbol_from_expr(arena, node, Scopes);
             } else {
                 _resolve_symbols(arena, node->BinaryOp.Right, Scopes, B, true);
                 _resolve_symbols(arena, node->BinaryOp.Left, Scopes, A, true);

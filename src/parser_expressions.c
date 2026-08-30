@@ -73,7 +73,7 @@ static ast_node *parse_prefix(parser *p) {
         ast_node *Operand = parse_expression_prec(p, PREC_UNARY);
 
         if (!Operand) {
-            parse_error(p, "Expected expression after prefix '++'.");
+            ParserError(p, "Expected expression after prefix '++'.");
             return NULL;
         }
 
@@ -89,7 +89,7 @@ static ast_node *parse_prefix(parser *p) {
         advance(p);
         ast_node *Operand = parse_expression_prec(p, PREC_UNARY);
         if (!Operand) {
-            parse_error(p, "Expected expression after unary operator.");
+            ParserError(p, "Expected expression after unary operator.");
             return NULL;
         }
         ast_node *N          = node(p, NODE_UNARY_OP);
@@ -121,7 +121,7 @@ static ast_node *parse_prefix(parser *p) {
         return parse_literal(p);
     }
 
-    parse_error(p, "Unexpected token '%s' in expression.", token_name(Tok->Type));
+    ParserError(p, "Unexpected token '%s' in expression.", token_name(Tok->Type));
     return NULL;
 }
 
@@ -150,7 +150,7 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec) {
             ast_node *Index = parse_expression_prec(p, PREC_NONE);
 
             if (!Index) {
-                parse_error(p, "Expected expression inside array indexing []");
+                ParserError(p, "Expected expression inside array indexing []");
                 return NULL;
             }
 
@@ -169,7 +169,7 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec) {
         if (Op->Type == TOKEN_EQUALS) {
             ast_node *Right = parse_expression_prec(p, PREC_ASSIGN - 1);
             if (!Right) {
-                parse_error(p, "Expected right-hand side after '='.");
+                ParserError(p, "Expected right-hand side after '='.");
                 return NULL;
             }
             ast_node *N           = node(p, NODE_BINARY_OP);
@@ -186,7 +186,7 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec) {
             ast_node *Right = parse_expression_prec(p, PREC_ASSIGN - 1);
 
             if (!Right) {
-                parse_error(p, "Expected right-hand side after '%s'.", token_name(Op->Type));
+                ParserError(p, "Expected right-hand side after '%s'.", token_name(Op->Type));
                 return NULL;
             }
 
@@ -210,7 +210,7 @@ static ast_node *parse_expression_prec(parser *p, precedence min_prec) {
         // 1 - 2 - 3  parses as  (1 - 2) - 3.
         ast_node *Right = parse_expression_prec(p, prec);
         if (!Right) {
-            parse_error(p, "Expected right-hand side after '%s'.", token_name(Op->Type));
+            ParserError(p, "Expected right-hand side after '%s'.", token_name(Op->Type));
             return NULL;
         }
 

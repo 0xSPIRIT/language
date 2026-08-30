@@ -33,6 +33,10 @@ const int SEEK_SET = 0;
 const int SEEK_CUR = 1;
 const int SEEK_END = 2;
 
+const uint32 RAND_MAX = 2147483647;
+
+int    rand    ();
+
 void   exit    (int status);
 
 *void  malloc  (uint64 size);

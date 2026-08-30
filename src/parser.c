@@ -33,23 +33,6 @@ ast_node *identifier(parser *p, string Name) {
 
 bool has_next(parser *p) { return p->i < p->Tokens.Count; }
 
-void parse_error(parser *p, const char *format, ...) {
-    va_list Args;
-    va_start(Args, format);
-
-    printf("[Parser Error] ");
-
-    vprintf(format, Args);
-
-    printf("\n");
-
-    if (p) print_at(p);
-
-    va_end(Args);
-
-    Breakpoint;
-}
-
 token *advance(parser *p) {
     if (has_next(p)) return &p->Tokens.Tokens[p->i++];
 
@@ -100,7 +83,7 @@ bool expect_keyword(parser *p, keyword k) { return (peek(p)->Type == TOKEN_KEYWO
 token *_consume(parser *p, token_type expected, const char *_file, int _line) {
     token *Tok = peek(p);
     if (Tok->Type != expected) {
-        parse_error(p, "%s(%d) Expected %s but got %s\n", _file, _line, token_name(expected), token_name(Tok->Type));
+        ParserError(p, "%s(%d) Expected %s but got %s\n", _file, _line, token_name(expected), token_name(Tok->Type));
         raise(SIGTRAP);
     }
     p->i++;
@@ -111,7 +94,7 @@ token *consume_keyword(parser *p, keyword Keyword) {
     token *Tok = peek(p);
 
     if (Tok->Type != TOKEN_KEYWORD || Tok->Keyword != Keyword) {
-        parse_error(p, "Expected keyword %s, got %s\n", get_keyword_str(Keyword), get_keyword_str(Tok->Keyword));
+        ParserError(p, "Expected keyword %s, got %s\n", get_keyword_str(Keyword).Data, get_keyword_str(Tok->Keyword).Data);
     }
     p->i++;
     return Tok;
@@ -149,7 +132,7 @@ ast_node *parse_literal(parser *p) {
             Node->CharLit.Value = Lit->String.Data[0];
             consume(p, TOKEN_CHAR_QUOTE);
             break;
-        default: parse_error(p, "Couldn't parse literal."); break;
+        default: ParserError(p, "Couldn't parse literal."); break;
     }
 
     return Node;
@@ -173,7 +156,7 @@ ast_node *parse_function_call(parser *p) {
 
         while (has_next(p)) {
             if (Node->Call.ArgCount >= MAX_PARAMS) {
-                parse_error(p, "Too many arguments!");
+                ParserError(p, "Too many arguments!");
                 assert(false);
             }
 
@@ -248,7 +231,7 @@ ast_node *parse_return(parser *p) {
         ast_node *ValNode = parse_expression(p);
 
         if (!ValNode) {
-            parse_error(p, "Error reading return value in return statement.");
+            ParserError(p, "Error reading return value in return statement.");
             return Node;
         }
 
@@ -383,7 +366,7 @@ ast_node *_parse_type(parser *p, bool peeking) {
 
         return BaseNode ? BaseNode : EndNode;
     } else {
-        parse_error(p, "Expected an identifier for the type, but got %s\n", token_name(peek(p)->Type));
+        ParserError(p, "Expected an identifier for the type, but got %s\n", token_name(peek(p)->Type));
         return NULL;
     }
 }
@@ -551,7 +534,7 @@ ast_node *parse_if(parser *p) {
         if (StmtType)
             Body = parse_statement(p, StmtType);
         else
-            parse_error(p, "Couldn't read statement after if statement");
+            ParserError(p, "Couldn't read statement after if statement");
     }
 
     if (expect_keyword(p, KEYWORD_ELSE)) {
@@ -565,7 +548,7 @@ ast_node *parse_if(parser *p) {
             if (StmtType)
                 Else = parse_statement(p, StmtType);
             else
-                parse_error(p, "Couldn't read statement after if statement");
+                ParserError(p, "Couldn't read statement after if statement");
         }
     }
 

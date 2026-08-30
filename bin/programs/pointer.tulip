@@ -1,7 +1,7 @@
-#include "cstdlib.k"
+#include "cstdlib.tulip"
 
 int modify_value(*int v) {
-    *v = *v + 1;
+    (*v)++;
 }
 
 int main(int argc, **char argv) {

@@ -5,7 +5,7 @@
 	SEEK_CUR:	.long	1
 	SEEK_END:	.long	2
 	LR3:	.asciz "n = "
-	LR4:	.asciz "%d"
+	LR4:	.asciz "%zu"
 	LR5:	.asciz "fibonacci(%d) = %d\n"
 	LR6:	.asciz "factorial(%d) = %d\n"
 
@@ -18,27 +18,27 @@ fibonacci:
   sub	rsp, 16
   push	rbx
   push	r12
-  mov	DWORD PTR [rbp - 4], edi
-  cmp	DWORD PTR [rbp - 4], 1
+  mov	QWORD PTR [rbp - 8], rdi
+  cmp	QWORD PTR [rbp - 8], 1
   setle	al
   movzx	eax, al
   test	eax, eax
   je	L0
-  mov	eax, DWORD PTR [rbp - 4]
+  mov	rax, QWORD PTR [rbp - 8]
   jmp	Lend_fibonacci
 L0:
-  mov	eax, DWORD PTR [rbp - 4]
-  sub	eax, 1
-  mov	edi, eax
+  mov	rax, QWORD PTR [rbp - 8]
+  sub	rax, 1
+  mov	rdi, rax
   call	fibonacci
-  mov	ebx, eax
-  mov	eax, DWORD PTR [rbp - 4]
-  sub	eax, 2
-  mov	edi, eax
+  mov	rbx, rax
+  mov	rax, QWORD PTR [rbp - 8]
+  sub	rax, 2
+  mov	rdi, rax
   call	fibonacci
-  mov	r12d, eax
-  mov	eax, ebx
-  add	eax, r12d
+  mov	r12, rax
+  mov	rax, rbx
+  add	rax, r12
   jmp	Lend_fibonacci
 Lend_fibonacci:
   pop	r12
@@ -51,22 +51,22 @@ factorial:
   mov	rbp, rsp
   sub	rsp, 16
   push	rbx
-  mov	DWORD PTR [rbp - 4], edi
-  cmp	DWORD PTR [rbp - 4], 1
+  mov	QWORD PTR [rbp - 8], rdi
+  cmp	QWORD PTR [rbp - 8], 1
   setle	al
   movzx	eax, al
   test	eax, eax
   je	L1
-  mov	eax, DWORD PTR [rbp - 4]
+  mov	rax, QWORD PTR [rbp - 8]
   jmp	Lend_factorial
 L1:
-  mov	eax, DWORD PTR [rbp - 4]
-  sub	eax, 1
-  mov	edi, eax
+  mov	rax, QWORD PTR [rbp - 8]
+  sub	rax, 1
+  mov	rdi, rax
   call	factorial
-  mov	ebx, eax
-  mov	eax, DWORD PTR [rbp - 4]
-  imul	eax, ebx
+  mov	rbx, rax
+  mov	rax, QWORD PTR [rbp - 8]
+  imul	rax, rbx
   jmp	Lend_factorial
 Lend_factorial:
   pop	rbx
@@ -80,22 +80,22 @@ main:
   lea	rdi, [rip + LR3]
   xor	al, al
   call	printf
-  lea	rax, [rbp - 4]
+  lea	rax, [rbp - 8]
   mov	rsi, rax
   lea	rdi, [rip + LR4]
   xor	al, al
   call	scanf
-  mov	edi, DWORD PTR [rbp - 4]
+  mov	rdi, QWORD PTR [rbp - 8]
   call	fibonacci
-  mov	edx, eax
-  mov	esi, DWORD PTR [rbp - 4]
+  mov	rdx, rax
+  mov	rsi, QWORD PTR [rbp - 8]
   lea	rdi, [rip + LR5]
   xor	al, al
   call	printf
-  mov	edi, DWORD PTR [rbp - 4]
+  mov	rdi, QWORD PTR [rbp - 8]
   call	factorial
-  mov	edx, eax
-  mov	esi, DWORD PTR [rbp - 4]
+  mov	rdx, rax
+  mov	rsi, QWORD PTR [rbp - 8]
   lea	rdi, [rip + LR6]
   xor	al, al
   call	printf

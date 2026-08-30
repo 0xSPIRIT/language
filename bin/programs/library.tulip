@@ -1,0 +1,48 @@
+#include "cstdlib.tulip"
+
+struct Book {
+    int   page_count;
+    *char name;
+};
+
+struct Library {
+    [20]Book book;
+    int count;
+};
+
+void add_book(*Library lib, *char name, int pages) {
+    const int total_count = sizeof(lib.book) / sizeof(lib.book[0]);
+
+    if (lib.count >= total_count)
+        return;
+
+    *Book b = &lib.book[lib.count++];
+
+    b.name       = name;
+    b.page_count = pages;
+}
+
+void print_book(*Book b) {
+    printf("%-25s (%d pages)\n", b.name, b.page_count);
+}
+
+int main() {
+    Library l;
+
+    l.count = 0;
+
+    add_book(&l, "Lockwood and Co.", 200);
+    add_book(&l, "Legendborne", 215);
+    add_book(&l, "Scythe", 321);
+    add_book(&l, "The Lightning Thief", 324);
+    add_book(&l, "I am Number Four", 345);
+    add_book(&l, "1984", 500);
+    add_book(&l, "Animal Farm", 200);
+    add_book(&l, "Bloodmarked", 212);
+
+    for (int i = 0; i < l.count; i++) {
+        print_book(&l.book[i]);
+    }
+
+    return 0;
+}

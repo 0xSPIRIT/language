@@ -7,6 +7,7 @@
 #include "arena.h"
 
 #define CSTR(x) ((string){(char *)x, sizeof(x) - 1})
+#define FmtStr(Str) (int)(Str).Length, (Str).Data
 
 typedef struct {
     char *Data;

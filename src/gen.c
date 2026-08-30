@@ -2,9 +2,9 @@
 
 #include <assert.h>
 #include <signal.h>
-#include <stdarg.h>
 #include <string.h>
 
+#include "util/error.h"
 #include "util/util.h"
 
 #define Imm(value) \
@@ -25,19 +25,6 @@ constexpr register_id ScratchRegisters[] = {REG_RBX, REG_R12, REG_R13, REG_R14, 
 
 int NextFreeRegister        = 0;
 int MaxScratchRegistersUsed = 0;
-
-void emit_error(const char *format, ...) {
-    va_list Args;
-    va_start(Args, format);
-
-    printf("[Codegen Error] ");
-
-    vprintf(format, Args);
-    printf("\n");
-
-    va_end(Args);
-    assert(false);
-}
 
 operand LabelOperand(string Label) { return (operand){.Type = OPERAND_LABEL, .Label.Name = Label}; }
 
@@ -440,9 +427,23 @@ operand emit_member_access(program_code *code, ast_node *Left, ast_node *Right) 
         }
     } else if (Left->Type == NODE_BINARY_OP && Left->BinaryOp.Operation == TOKEN_DOT) {
         Structure = emit_member_access(code, Left->BinaryOp.Left, Left->BinaryOp.Right);
+    } else if (Left->Type == NODE_BINARY_OP && Left->BinaryOp.Operation == TOKEN_OPEN_SQUARE) {
+        Structure = emit_expression(Left, code);
+
+        assert(Structure.Type == OPERAND_MEM);
+        assert(Structure.Mem.Base == REG_RAX);
+
+        symbol *FieldSym = Right->Ident.Sym;
+
+        operand Result          = Structure;
+        Result.Type             = OPERAND_MEM;
+        Result.Size             = FieldSym->TypeInfo.Size;
+        Result.Mem.IsAddress    = false;
+        Result.Mem.Displacement = ConstDisplacement(FieldSym->FieldOffset);
+
+        return Result;
     } else {
-        emit_error("Left side of . must be an identifier or another member access");
-        assert(false);
+        Error("Left side of . must be an identifier or another member access");
         return (operand){};
     }
 
@@ -580,7 +581,7 @@ operand emit_binop(ast_node *node, program_code *code) {
         }
 
         default: {
-            emit_error("Didn't implement this binary operation %s\n", token_name(Op));
+            Error("Didn't implement this binary operation %s\n", token_name(Op));
             Result = (operand){};
             break;
         }
@@ -634,8 +635,13 @@ operand emit_inc_dec(program_code *Code, ast_node *Node, bool Increment, bool Pr
     operand Var = emit_expression(Node->UnaryOp.Operand, Code);
 
     if (Var.Type == OPERAND_IMM) {
-        emit_error("Can't ++ or -- an immediate value.");
+        Error("Can't ++ or -- an immediate value.");
         return (operand){};
+    }
+
+    if (Var.Type == OPERAND_MEM && Var.Mem.Base == REG_RAX) {
+        emit_move(Code, Reg(REG_R11, 8), Reg(REG_RAX, 8));
+        Var.Mem.Base = REG_R11;
     }
 
     if (!Prefix) {
@@ -686,7 +692,7 @@ type_info get_type_info_from_operand(ast_node *Node, bool Principal) {
                 Result = B;
             } else {
                 if (A.IndirectionDepth > 0 && B.IndirectionDepth > 0) {
-                    emit_error("Pointer math can only be done with one pointer operand.");
+                    Error("Pointer math can only be done with one pointer operand.");
                 } else if (A.IndirectionDepth > 0) {
                     Result = A;
                 } else {
@@ -772,8 +778,6 @@ void access_array(program_code *code, operand Ptr, operand Off, bool Subtract, i
             });
         }
     } else {
-        assert(Off.Type == OPERAND_MEM);
-
         asm_opcode Opcode = Subtract ? ASM_SUB : ASM_ADD;
 
         // (imul) Multiply offset by ElemSize
@@ -974,8 +978,7 @@ operand emit_call(ast_node *node, program_code *code) {
     string Name = node->Call.FuncName->Ident.Name;
 
     if (node->Call.ArgCount > ArraySize(ParamRegisters)) {
-        emit_error("Haven't gotten to implementing stack arguments yet!");
-        assert(false);
+        Error("Haven't gotten to implementing stack arguments yet!");
     }
 
     func_data FuncData = node->Call.FuncName->Ident.Sym->Function;
@@ -997,8 +1000,7 @@ operand emit_call(ast_node *node, program_code *code) {
         }
 
         if (ArgI.Size > 8) {
-            emit_error("Function parameters must be at most 8 bytes large.");
-            continue;
+            Error("Function parameters must be at most 8 bytes large.");
         }
 
         emit_move(code, Reg(ParamRegisters[i], ExpectedArgSize), ArgI);
@@ -1108,8 +1110,7 @@ operand emit_expression(ast_node *node, program_code *code) {
 
 operand scratch_register(int size) {
     if (NextFreeRegister >= ArraySize(ScratchRegisters)) {
-        emit_error("Expression too complex, ran out of scratch registers.");
-        assert(false);
+        Error("Expression too complex, ran out of scratch registers.");
         return (operand){};
     }
 
@@ -1283,7 +1284,7 @@ void emit_statement(ast_node *node, program_code *code) {
                 }
 
                 if (Size > 8) {
-                    emit_error("Cannot pass types larger than 8 bytes as a parameter.");
+                    Error("Cannot pass types larger than 8 bytes as a parameter.");
                 }
             }
 
@@ -1330,7 +1331,7 @@ void emit_statement(ast_node *node, program_code *code) {
             switch (node->BinaryOp.Operation) {
                 case TOKEN_EQUALS: {
                     if (Left->Type == NODE_IDENT && Left->Ident.Sym->TypeInfo.IsConst) {
-                        emit_error("Cannot set const type.");
+                        Error("Cannot set const type.");
                         break;
                     }
 
@@ -1365,8 +1366,7 @@ void emit_statement(ast_node *node, program_code *code) {
                     break;
                 }
                 default: {
-                    emit_error("Haven't implemented parsing for binary operation of type %s yet, sorry!",
-                               token_name(node->BinaryOp.Operation));
+                    Error("Haven't implemented parsing for binary operation of type %s yet, sorry!", token_name(node->BinaryOp.Operation));
                     break;
                 }
             }

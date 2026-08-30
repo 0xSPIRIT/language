@@ -14,16 +14,12 @@ modify_value:
   push	rbp
   mov	rbp, rsp
   sub	rsp, 16
-  push	rbx
   mov	QWORD PTR [rbp - 8], rdi
   mov	rax, QWORD PTR [rbp - 8]
-  mov	rax, QWORD PTR [rax]
-  add	rax, 1
-  mov	rbx, rax
-  mov	rax, QWORD PTR [rbp - 8]
-  mov	QWORD PTR [rax], rbx
+  mov	r11, rax
+  mov	rax, QWORD PTR [r11]
+  add	QWORD PTR [r11], 1
 Lend_modify_value:
-  pop	rbx
   mov	rsp, rbp
   pop	rbp
   ret	

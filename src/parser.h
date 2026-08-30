@@ -178,7 +178,6 @@ ast_node *parse_expression(parser *p);
 ast_node *parse_identifier(parser *p);
 ast_node *parse_literal(parser *p);
 token *peek(parser *p);
-void parse_error(parser *p, const char *format, ...);
 bool has_next(parser *p);
 token *advance(parser *p);
 ast_node *parse_sizeof(parser *p);
