@@ -1,7 +1,5 @@
 #include "cstdlib.tulip"
 
-const int SIZE = 10;
-
 struct Vec3 {
     int x, y, z;
 };
