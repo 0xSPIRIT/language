@@ -159,6 +159,10 @@ typedef struct {
     memory_arena InstructionArena;
     memory_arena *GeneralArena;
 
+    // We store nested functions here which are queued up to be emitted at global scope.
+    ast_node **FunctionQueue;
+    int FunctionQueueSize;
+
     string CurrentFunction;
     int CurrentFunctionReturnSize;
 

@@ -1,0 +1,55 @@
+#include "cstdlib.tulip"
+
+int main() {
+    int first() {
+        void example() {
+            struct Test {
+                int a, b;
+            };
+
+            int compare(*Test t) {
+                return t.a > t.b;
+            }
+
+            Test t;
+            t.a = 10;
+            t.b = 20;
+
+            printf("Comparison is %d\n", compare(&t));
+        }
+
+        example();
+
+        return 10;
+    }
+
+    int second() {
+        void example() {
+            struct Test {
+                int a, b;
+            };
+
+            int compare(*Test t) {
+                return 67 + t.a + t.b;
+            }
+
+            Test t;
+            t.a = 10;
+            t.b = 20;
+
+            printf("Comparison is %d\n", compare(&t));
+        }
+
+        example();
+
+        return 10;
+    }
+
+
+    int a = first();
+    int b = second();
+
+    printf("%d\n", a+b);
+
+    return 0;
+}

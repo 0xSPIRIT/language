@@ -29,6 +29,7 @@ typedef struct {
 
 typedef struct {
     struct symbol **Params;
+    string LabelName;
     int ParamCount;
     type ReturnType;
     bool IsVariadic;

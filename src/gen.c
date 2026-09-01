@@ -975,14 +975,13 @@ operand emit_unaryop(ast_node *node, program_code *code) {
 operand emit_call(ast_node *node, program_code *code) {
     assert(node->Type == NODE_CALL);
 
-    string Name = node->Call.FuncName->Ident.Name;
-
     if (node->Call.ArgCount > ArraySize(ParamRegisters)) {
         Error("Haven't gotten to implementing stack arguments yet!");
     }
 
     func_data FuncData = node->Call.FuncName->Ident.Sym->Function;
     bool IsVariadic    = FuncData.IsVariadic;
+    string Name        = FuncData.LabelName;
 
     const int FloatCount = 0;
 
@@ -1141,6 +1140,8 @@ void emit_free_all_scratch_registers(program_code *code) {
 void emit_move(program_code *code, operand Dst, operand Src) {
     if (Src.Size == 0) Src.Size = Dst.Size;
 
+    AssertError(Dst.Size > 0, "Trying to move a value into a destination with zero size.");
+
     // If we're moving from X to X, do nothing.
     if (Src.Type == OPERAND_REG && Dst.Type == OPERAND_REG && Src.Reg.Register == Dst.Reg.Register) {
         if (Src.Size >= Dst.Size) return;
@@ -1253,6 +1254,59 @@ void emit_var_decl(program_code *code, ast_node *node) {
     }
 }
 
+void emit_function_definition(ast_node *node, program_code *code) {
+    ast_node *Name = node->FuncDef.Name;
+
+    code->CurrentFunction           = Name->Ident.Sym->Function.LabelName;
+    code->CurrentFunctionReturnSize = get_type_size(node->FuncDef.ReturnType->DataType.Type);
+
+    for (int i = 0; i < node->FuncDef.ParamCount; i++) {
+        int Size = get_type_size(node->FuncDef.Params[i]->VarDecl.Type->DataType.Type);
+
+        if (Size == -1) {
+            symbol *Sym = node->FuncDef.Params[i]->VarDecl.Type->DataType.Name->Ident.Sym;
+            Size        = Sym->TypeInfo.Size;
+        }
+
+        if (Size > 8) {
+            Error("Cannot pass types larger than 8 bytes as a parameter.");
+        }
+    }
+
+    size_t local_size = Name->Ident.Sym->TypeInfo.Size;
+    size_t frame_size = local_size + total_param_bytes(Name->Ident.Sym);
+
+    string_equals(code->CurrentFunction, CSTR("main"));
+
+    emit_function_label(code, code->CurrentFunction);
+
+    asm_instruction *SubRspInstr;
+    asm_instruction *Scratch = emit_function_prologue(code, &SubRspInstr);
+
+    emit_spill_params(code, Name->Ident.Sym, local_size);
+
+    emit_statement(node->FuncDef.Body, code);
+
+    // Backfill the scratch regsiters
+    for (int i = 0; i < MaxScratchRegistersUsed; i++) {
+        Scratch[i] = (asm_instruction){.Op = ASM_PUSH, .Dst = Reg(ScratchRegisters[i], 8)};
+    }
+
+    // Backfill the local size, ensuring % 16 == 8.
+    int LogicalFrameSize = frame_size + NextFreeRegister * 8;
+
+    if (LogicalFrameSize % 16 > 0) frame_size += 16 - LogicalFrameSize % 16;
+
+    SubRspInstr->Src.Imm.Value = frame_size;
+
+    emit_function_epilogue(code);
+    code->CurrentFunction = (string){};
+}
+
+void enqueue_function(ast_node *node, program_code *code) {
+    code->FunctionQueue[code->FunctionQueueSize++] = node;
+}
+
 void emit_statement(ast_node *node, program_code *code) {
     if (!node) return;
 
@@ -1265,57 +1319,23 @@ void emit_statement(ast_node *node, program_code *code) {
             for (int i = 0; i < node->Program.FunctionCount; i++) {
                 emit_statement(node->Program.Functions[i], code);
             }
+
+            for (int i = 0; i < code->FunctionQueueSize; i++) {
+                emit_statement(code->FunctionQueue[i], code);
+            }
             break;
         }
         case NODE_FUNC_DEF: {
-            if (!node->FuncDef.Body) return;  // Forward declaration
+            // Forward declaration
+            if (!node->FuncDef.Body) break;
 
-            ast_node *Name = node->FuncDef.Name;
-
-            code->CurrentFunction           = Name->Ident.Name;
-            code->CurrentFunctionReturnSize = get_type_size(node->FuncDef.ReturnType->DataType.Type);
-
-            for (int i = 0; i < node->FuncDef.ParamCount; i++) {
-                int Size = get_type_size(node->FuncDef.Params[i]->VarDecl.Type->DataType.Type);
-
-                if (Size == -1) {
-                    symbol *Sym = node->FuncDef.Params[i]->VarDecl.Type->DataType.Name->Ident.Sym;
-                    Size        = Sym->TypeInfo.Size;
-                }
-
-                if (Size > 8) {
-                    Error("Cannot pass types larger than 8 bytes as a parameter.");
-                }
+            // If we're currently in a nested function, enqueue the function for later evaluation.
+            if (code->CurrentFunction.Length && node->Scope->Parent) {
+                enqueue_function(node, code);
+                break;
             }
 
-            size_t local_size = Name->Ident.Sym->TypeInfo.Size;
-            size_t frame_size = local_size + total_param_bytes(Name->Ident.Sym);
-
-            string_equals(Name->Ident.Name, CSTR("main"));
-
-            emit_function_label(code, Name->Ident.Name);
-
-            asm_instruction *SubRspInstr;
-            asm_instruction *Scratch = emit_function_prologue(code, &SubRspInstr);
-
-            emit_spill_params(code, Name->Ident.Sym, local_size);
-
-            emit_statement(node->FuncDef.Body, code);
-
-            // Backfill the scratch regsiters
-            for (int i = 0; i < MaxScratchRegistersUsed; i++) {
-                Scratch[i] = (asm_instruction){.Op = ASM_PUSH, .Dst = Reg(ScratchRegisters[i], 8)};
-            }
-
-            // Backfill the local size, ensuring % 16 == 8.
-            int LogicalFrameSize = frame_size + NextFreeRegister * 8;
-
-            if (LogicalFrameSize % 16 > 0) frame_size += 16 - LogicalFrameSize % 16;
-
-            SubRspInstr->Src.Imm.Value = frame_size;
-
-            emit_function_epilogue(code);
-
+            emit_function_definition(node, code);
             break;
         }
         case NODE_BLOCK: {
@@ -1447,7 +1467,7 @@ void emit_statement(ast_node *node, program_code *code) {
         case NODE_RETURN: {
             ast_node *Val = node->Return.Value;
 
-            if (Val) {
+            if (code->CurrentFunctionReturnSize > 0 && Val) {
                 operand Operand = emit_expression(Val, code);
                 emit_move(code, Reg(REG_RAX, code->CurrentFunctionReturnSize), Operand);
             }
@@ -1569,7 +1589,7 @@ void print_mem(FILE *out, operand op) {
 
     displacement Disp = op.Mem.Displacement;
 
-    if (Disp.Type == DISPLACEMENT_CONSTANT) {
+    if (Disp.Type == DISPLACEMENT_CONSTANT && Disp.Value != 0) {
         int Off = Disp.Value;
 
         if (Off >= 0) {
@@ -1741,6 +1761,7 @@ program_code gen_program_code(FILE *out, memory_arena *arena, ast_node *ast) {
     Code.RodataEntries = arena_push(arena, MAX_SECTION_ENTRIES * sizeof(section_entry));
     Code.BssEntries    = arena_push(arena, MAX_SECTION_ENTRIES * sizeof(section_entry));
     Code.Loops         = arena_push(arena, MAX_DEPTH * sizeof(loop));
+    Code.FunctionQueue = arena_push(arena, MAX_FUNCTIONS * sizeof(ast_node*));
 
     emit_statement(ast, &Code);
 

@@ -1,32 +1,49 @@
 #include "cstdlib.tulip"
 
-struct Book {
-    int   page_count;
-    *char name;
-};
+void other_function() {
+    struct Book {
+        int a, b, c;
+    };
 
-struct Library {
-    [20]Book book;
-    int count;
-};
+    void print_book(*Book b) {
+        printf("%d %d %d\n", b.a, b.b, b.c);
+    }
 
-void add_book(*Library lib, *char name, int pages) {
-    const int total_count = sizeof(lib.book) / sizeof(lib.book[0]);
+    Book b;
 
-    if (lib.count >= total_count)
-        return;
+    b.a = 10;
+    b.b = 12;
+    b.c = 13;
 
-    *Book b = &lib.book[lib.count++];
-
-    b.name       = name;
-    b.page_count = pages;
-}
-
-void print_book(*Book b) {
-    printf("%-25s (%d pages)\n", b.name, b.page_count);
+    print_book(&b);
 }
 
 int main() {
+    struct Book {
+        int page_count;
+        *char name;
+    };
+
+    struct Library {
+        [20]Book book;
+        int count;
+    };
+
+    void add_book(*Library lib, *char name, int pages) {
+        const int total_count = sizeof(lib.book) / sizeof(lib.book[0]);
+
+        if (lib.count >= total_count) return;
+
+        *Book b = &lib.book[lib.count++];
+
+        b.name       = name;
+        b.page_count = pages;
+    }
+
+    void print_book(*Book b) {
+        printf("%-25s (%d pages)\n", b.name, b.page_count);
+    }
+
     Library l;
 
     l.count = 0;
@@ -43,6 +60,8 @@ int main() {
     for (int i = 0; i < l.count; i++) {
         print_book(&l.book[i]);
     }
+
+    other_function();
 
     return 0;
 }

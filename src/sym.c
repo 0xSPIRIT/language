@@ -230,6 +230,10 @@ symbol make_var_decl_symbol_and_resolve_type(memory_arena *arena, scopes *Scopes
     resolve_type_info(arena, Scopes, var_decl->VarDecl.Type, &DeclSym.TypeInfo);
     resolve_section(&DeclSym, var_decl, Scopes);
 
+    if (var_decl->VarDecl.Type->DataType.Type == TYPE_STRUCT) {
+        AssertError(DeclSym.TypeInfo.StructType != NULL, "Struct is undeclared.");
+    }
+
     return DeclSym;
 }
 
@@ -371,7 +375,6 @@ symbol *resolve_struct_symbol_from_expr(memory_arena *arena, ast_node *node, sco
                 node->BinaryOp.Right->Ident.Sym = FieldSym;
 
                 if (!FieldSym) {
-                    // Error("Couldn't find field in struct.");
                 } else {
                     type_info *TypeInfo = &FieldSym->TypeInfo;
 
@@ -474,6 +477,15 @@ void _resolve_symbols(memory_arena *arena, ast_node *node, scopes *Scopes, symbo
 
             _resolve_symbols(arena, node->FuncDef.Name, Scopes, (symbol){.Type = SYM_FUNC}, false);
             _resolve_symbols(arena, node->FuncDef.ReturnType, Scopes, (symbol){}, true);
+
+            string FunctionName = node->FuncDef.Name->Ident.Name;
+
+            if (Scopes->CurrentScope->Parent) {
+                FuncData.LabelName        = string_make(arena, FunctionName.Length + 8);
+                FuncData.LabelName.Length = sprintf(FuncData.LabelName.Data, "%.*s%d", FmtStr(FunctionName), Scopes->Count);
+            } else {
+                FuncData.LabelName = FunctionName;
+            }
 
             push_scope(arena, Scopes);
 
