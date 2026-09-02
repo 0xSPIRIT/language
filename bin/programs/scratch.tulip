@@ -1,0 +1,19 @@
+#include "cstdlib.tulip"
+
+void print_ptr(*void ptr) {
+    printf("%p\n", ptr);
+}
+
+int main() {
+    *char buf1 = 0;
+
+    print_ptr(buf1);
+
+    buf1 = malloc(1000);
+
+    print_ptr(buf1);
+
+    free(buf1);
+
+    return 0;
+}
